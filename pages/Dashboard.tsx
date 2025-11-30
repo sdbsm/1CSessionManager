@@ -37,7 +37,7 @@ interface DashboardProps {
 }
 
 interface DashboardStats {
-  databaseStats: { [key: string]: { sessions: number } };
+  databaseStats: { [key: string]: { sessions: number; sizeMB?: number } };
   connectionTypes: { [key: string]: number };
   clusterStatus: 'online' | 'offline' | 'unknown';
   serverMetrics: {
@@ -57,6 +57,15 @@ interface TopClient {
 }
 
 const COLORS = ['#6366f1', '#8b5cf6', '#ec4899', '#f59e0b', '#10b981', '#3b82f6'];
+
+// Format database size helper
+const formatDatabaseSize = (sizeMB?: number): string => {
+  if (sizeMB === undefined || sizeMB === null) return '—';
+  if (sizeMB < 1024) {
+    return `${sizeMB.toFixed(1)} MB`;
+  }
+  return `${(sizeMB / 1024).toFixed(2)} GB`;
+};
 
 const Dashboard: React.FC<DashboardProps> = ({ clients, events }) => {
   const [aiInsight, setAiInsight] = useState<string | null>(null);
@@ -119,12 +128,23 @@ const Dashboard: React.FC<DashboardProps> = ({ clients, events }) => {
     setLoadingAi(false);
   };
 
-  // Prepare data for charts
+  // Prepare data for database list - show all databases, sorted by size (if available) or name
   const databaseChartData = dashboardStats 
     ? Object.entries(dashboardStats.databaseStats)
-        .map(([name, data]: [string, { sessions: number }]) => ({ name, value: data.sessions }))
-        .sort((a, b) => b.value - a.value)
-        .slice(0, 10)
+        .map(([name, data]: [string, { sessions: number; sizeMB?: number }]) => ({ 
+          name, 
+          value: data.sessions,
+          sizeMB: data.sizeMB 
+        }))
+        .sort((a, b) => {
+          // Sort by size first (if available), then by name
+          if (a.sizeMB !== undefined && b.sizeMB !== undefined) {
+            return b.sizeMB - a.sizeMB;
+          }
+          if (a.sizeMB !== undefined) return -1;
+          if (b.sizeMB !== undefined) return 1;
+          return a.name.localeCompare(b.name);
+        })
     : [];
 
   const connectionTypesData = dashboardStats
@@ -132,6 +152,27 @@ const Dashboard: React.FC<DashboardProps> = ({ clients, events }) => {
         .filter(([_, count]: [string, number]) => count > 0)
         .map(([name, count]: [string, number]) => ({ name, value: count }))
     : [];
+
+  // Calculate database size statistics
+  const databaseSizeStats = dashboardStats
+    ? (() => {
+        const dbsWithSizes = Object.values(dashboardStats.databaseStats)
+          .filter((db: { sessions: number; sizeMB?: number }) => db.sizeMB !== undefined && db.sizeMB !== null)
+          .map((db: { sessions: number; sizeMB?: number }) => db.sizeMB || 0);
+        
+        if (dbsWithSizes.length === 0) {
+          return { totalSizeMB: 0, totalSizeGB: 0, count: 0, avgSizeMB: 0, avgSizeGB: 0 };
+        }
+        
+        const totalSizeMB = dbsWithSizes.reduce((sum, size) => sum + size, 0);
+        const totalSizeGB = totalSizeMB / 1024;
+        const count = dbsWithSizes.length;
+        const avgSizeMB = totalSizeMB / count;
+        const avgSizeGB = avgSizeMB / 1024;
+        
+        return { totalSizeMB, totalSizeGB, count, avgSizeMB, avgSizeGB };
+      })()
+    : { totalSizeMB: 0, totalSizeGB: 0, count: 0, avgSizeMB: 0, avgSizeGB: 0 };
 
   const criticalEvents = events
     .filter(e => e.level === 'critical' || e.level === 'warning')
@@ -167,8 +208,8 @@ const Dashboard: React.FC<DashboardProps> = ({ clients, events }) => {
         </div>
       )}
 
-      {/* Секция 1: Ключевые метрики (6 карточек) */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      {/* Секция 1: Ключевые метрики */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <StatCard 
           title="Загрузка лицензий" 
           value={`${utilizationRate}%`} 
@@ -215,6 +256,15 @@ const Dashboard: React.FC<DashboardProps> = ({ clients, events }) => {
           color={dashboardStats?.serverMetrics?.cpu 
             ? (dashboardStats.serverMetrics.cpu > 80 ? 'orange' : dashboardStats.serverMetrics.cpu > 60 ? 'blue' : 'green')
             : 'blue'}
+        />
+        <StatCard 
+          title="Общий размер БД" 
+          value={databaseSizeStats.count > 0 ? formatDatabaseSize(databaseSizeStats.totalSizeMB).replace(' MB', '').replace(' GB', '') : '—'} 
+          description={databaseSizeStats.count > 0 
+            ? `${databaseSizeStats.count} баз, средний: ${formatDatabaseSize(databaseSizeStats.avgSizeMB)}`
+            : 'Размеры БД недоступны'}
+          icon={Database}
+          color={databaseSizeStats.count > 0 ? 'blue' : 'blue'}
         />
       </div>
 
@@ -335,7 +385,7 @@ const Dashboard: React.FC<DashboardProps> = ({ clients, events }) => {
           <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
             <h3 className="text-lg font-semibold text-slate-800 mb-4 flex items-center gap-2">
               <Database size={20} />
-              Базы данных
+              Все базы данных
             </h3>
             <div className="space-y-3 max-h-[200px] overflow-y-auto">
               {databaseChartData.length === 0 ? (
@@ -343,8 +393,13 @@ const Dashboard: React.FC<DashboardProps> = ({ clients, events }) => {
               ) : (
                 databaseChartData.map((db, index) => (
                   <div key={index} className="flex justify-between items-center p-2 bg-slate-50 rounded">
-                    <span className="text-sm font-medium text-slate-700 truncate">{db.name}</span>
-                    <span className="text-sm text-slate-600 font-mono ml-2">{db.value}</span>
+                    <div className="flex-1 min-w-0">
+                      <span className="text-sm font-medium text-slate-700 truncate block">{db.name}</span>
+                      {db.sizeMB !== undefined && db.sizeMB !== null && (
+                        <span className="text-xs text-slate-500">{formatDatabaseSize(db.sizeMB)}</span>
+                      )}
+                    </div>
+                    <span className="text-sm text-slate-600 font-mono ml-2 flex-shrink-0">{db.value}</span>
                   </div>
                 ))
               )}

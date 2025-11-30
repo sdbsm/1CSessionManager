@@ -19,6 +19,25 @@ try {
     console.error("Notice: 'iconv-lite' not installed. Install it for better Cyrillic support.");
 }
 
+// MSSQL driver
+let mssql;
+try {
+    const mssqlModule = await import('mssql');
+    mssql = mssqlModule.default || mssqlModule;
+} catch (e) {
+    console.error("Notice: 'mssql' not installed. Install it for MSSQL integration support.");
+}
+
+// Encryption service for password protection
+let encryptionService;
+try {
+    const encryptionModule = await import('./services/encryptionService.js');
+    encryptionService = encryptionModule;
+} catch (e) {
+    console.error("Notice: Encryption service not available. Passwords will be stored in plain text.");
+    encryptionService = null;
+}
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -43,7 +62,14 @@ const DEFAULT_SETTINGS = {
     clusterUser: '',
     clusterPass: '',
     checkInterval: 30,
-    killMode: true
+    killMode: true,
+    // MSSQL Integration
+    mssqlEnabled: false,
+    mssqlServer: 'localhost',
+    mssqlPort: 1433,
+    mssqlDatabase: 'master',
+    mssqlUser: '',
+    mssqlPassword: ''
 };
 
 // --- STATE ---
@@ -55,7 +81,10 @@ function loadJSON(filepath, defaultVal) {
 }
 
 let clients = loadJSON(CLIENTS_FILE, []);
-let settings = { ...DEFAULT_SETTINGS, ...loadJSON(SETTINGS_FILE, {}) };
+// Load settings and decrypt passwords
+let loadedSettings = loadJSON(SETTINGS_FILE, {});
+let settings = { ...DEFAULT_SETTINGS, ...loadedSettings };
+// Decrypt passwords after loading will happen after decryptSettingsPasswords function is defined
 let events = loadJSON(EVENTS_FILE, []);
 let dbMap = {}; // UUID -> Name
 let clusterId = null;
@@ -69,10 +98,21 @@ let dashboardStats = {
     lastUpdate: null
 };
 
+// MSSQL Database sizes cache
+let databaseSizesCache = {
+    data: {}, // { dbName: sizeInMB }
+    timestamp: null,
+    ttl: 300000 // 5 minutes in milliseconds
+};
+
 function saveData() {
     try {
         fs.writeFileSync(CLIENTS_FILE, JSON.stringify(clients, null, 2));
-        fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2));
+        
+        // Encrypt passwords before saving settings to file
+        const settingsToSave = encryptSettingsPasswords({ ...settings });
+        fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settingsToSave, null, 2));
+        
         fs.writeFileSync(EVENTS_FILE, JSON.stringify(events.slice(0, 100), null, 2));
     } catch (e) { console.error("Save Error:", e); }
 }
@@ -84,6 +124,113 @@ function logEvent(level, message) {
     saveData();
     console.log(`[${level.toUpperCase()}] ${message}`);
 }
+
+// --- PASSWORD ENCRYPTION ---
+
+/**
+ * Decrypt passwords in settings object
+ * Called after loading settings from file
+ * Uses synchronous decryption for startup
+ */
+function decryptSettingsPasswords(settingsObj) {
+    if (!encryptionService || !settingsObj) return settingsObj;
+    
+    const decrypted = { ...settingsObj };
+    
+    // Decrypt cluster password (use sync version for startup)
+    if (decrypted.clusterPass && typeof encryptionService.isEncrypted === 'function') {
+        if (encryptionService.isEncrypted(decrypted.clusterPass)) {
+            // Try sync version first (for startup)
+            if (typeof encryptionService.decryptPasswordSync === 'function') {
+                const decryptedPass = encryptionService.decryptPasswordSync(decrypted.clusterPass);
+                if (decryptedPass) {
+                    decrypted.clusterPass = decryptedPass;
+                }
+            }
+        }
+    }
+    
+    // Decrypt MSSQL password (use sync version for startup)
+    if (decrypted.mssqlPassword && typeof encryptionService.isEncrypted === 'function') {
+        if (encryptionService.isEncrypted(decrypted.mssqlPassword)) {
+            // Try sync version first (for startup)
+            if (typeof encryptionService.decryptPasswordSync === 'function') {
+                const decryptedPass = encryptionService.decryptPasswordSync(decrypted.mssqlPassword);
+                if (decryptedPass) {
+                    decrypted.mssqlPassword = decryptedPass;
+                }
+            }
+        }
+    }
+    
+    return decrypted;
+}
+
+/**
+ * Encrypt passwords in settings object before saving
+ * Also migrates plain text passwords to encrypted format
+ * Uses synchronous encryption to avoid async complexity in saveData
+ */
+function encryptSettingsPasswords(settingsObj) {
+    if (!encryptionService || !settingsObj) return settingsObj;
+    
+    const encrypted = { ...settingsObj };
+    
+    // Encrypt/migrate cluster password (use sync version)
+    if (encrypted.clusterPass && encrypted.clusterPass.trim() !== '') {
+        // Check if already encrypted
+        if (typeof encryptionService.isEncrypted === 'function' && encryptionService.isEncrypted(encrypted.clusterPass)) {
+            // Already encrypted, keep as is
+        } else {
+            // Need to encrypt - use sync version
+            if (typeof encryptionService.encryptPasswordSync === 'function') {
+                const encryptedPass = encryptionService.encryptPasswordSync(encrypted.clusterPass);
+                if (encryptedPass) {
+                    encrypted.clusterPass = encryptedPass;
+                }
+            }
+        }
+    }
+    
+    // Encrypt/migrate MSSQL password (use sync version)
+    if (encrypted.mssqlPassword && encrypted.mssqlPassword.trim() !== '') {
+        // Check if already encrypted
+        if (typeof encryptionService.isEncrypted === 'function' && encryptionService.isEncrypted(encrypted.mssqlPassword)) {
+            // Already encrypted, keep as is
+        } else {
+            // Need to encrypt - use sync version
+            if (typeof encryptionService.encryptPasswordSync === 'function') {
+                const encryptedPass = encryptionService.encryptPasswordSync(encrypted.mssqlPassword);
+                if (encryptedPass) {
+                    encrypted.mssqlPassword = encryptedPass;
+                }
+            }
+        }
+    }
+    
+    return encrypted;
+}
+
+/**
+ * Prepare settings for API response (without decrypted passwords)
+ * Returns settings with encrypted passwords for security
+ */
+function prepareSettingsForResponse(settingsObj) {
+    const response = { ...settingsObj };
+    
+    // Replace passwords with placeholder for security
+    if (response.clusterPass && response.clusterPass.trim() !== '') {
+        response.clusterPass = '***ENCRYPTED***';
+    }
+    if (response.mssqlPassword && response.mssqlPassword.trim() !== '') {
+        response.mssqlPassword = '***ENCRYPTED***';
+    }
+    
+    return response;
+}
+
+// Decrypt passwords after loading settings (now that decryptSettingsPasswords is defined)
+settings = decryptSettingsPasswords(settings);
 
 // --- RAC ENGINE ---
 
@@ -312,6 +459,103 @@ function getServerInfo() {
             resolve({ hostname, osVersion });
         });
     });
+}
+
+/**
+ * Get database sizes from MSSQL
+ * Returns object { dbName: sizeInMB }
+ */
+async function getDatabaseSizes() {
+    if (!mssql || !settings.mssqlEnabled) {
+        return {};
+    }
+
+    if (!settings.mssqlServer || !settings.mssqlUser || !settings.mssqlPassword) {
+        return {};
+    }
+
+    let pool = null;
+    try {
+        const config = {
+            server: settings.mssqlServer,
+            port: settings.mssqlPort || 1433,
+            database: settings.mssqlDatabase || 'master',
+            user: settings.mssqlUser,
+            password: settings.mssqlPassword,
+            options: {
+                encrypt: false, // Use false for local development
+                trustServerCertificate: true,
+                enableArithAbort: true,
+                requestTimeout: 30000 // 30 seconds
+            }
+        };
+
+        pool = await mssql.connect(config);
+        const request = pool.request();
+
+        // Query to get database sizes (data files only)
+        // Use DB_NAME(database_id) to get actual database name, not file name
+        const query = `
+            SELECT 
+                DB_NAME(database_id) AS DatabaseName,
+                CAST(SUM(size) * 8.0 / 1024 AS DECIMAL(10, 2)) AS SizeMB
+            FROM sys.master_files
+            WHERE type = 0
+            GROUP BY database_id
+        `;
+
+        const result = await request.query(query);
+        const sizes = {};
+
+        if (result.recordset && result.recordset.length > 0) {
+            console.log('[MSSQL] Databases found in SQL Server:');
+            result.recordset.forEach(row => {
+                if (row.DatabaseName && row.SizeMB !== null) {
+                    sizes[row.DatabaseName] = parseFloat(row.SizeMB);
+                    console.log(`  - ${row.DatabaseName}: ${row.SizeMB.toFixed(2)} MB`);
+                }
+            });
+        } else {
+            console.log('[MSSQL] No databases found in result');
+        }
+
+        return sizes;
+    } catch (error) {
+        console.error('[MSSQL ERROR] Failed to get database sizes:', error.message);
+        logEvent('warning', `Ошибка подключения к MSSQL: ${error.message}`);
+        return {};
+    } finally {
+        if (pool) {
+            try {
+                await pool.close();
+            } catch (e) {
+                // Ignore close errors
+            }
+        }
+    }
+}
+
+/**
+ * Get cached database sizes or fetch new ones if cache is expired
+ */
+async function getCachedDatabaseSizes() {
+    const now = Date.now();
+    
+    // Check if cache is valid
+    if (databaseSizesCache.timestamp && 
+        (now - databaseSizesCache.timestamp) < databaseSizesCache.ttl &&
+        Object.keys(databaseSizesCache.data).length > 0) {
+        return databaseSizesCache.data;
+    }
+
+    // Fetch new data
+    const sizes = await getDatabaseSizes();
+    
+    // Update cache
+    databaseSizesCache.data = sizes;
+    databaseSizesCache.timestamp = now;
+    
+    return sizes;
 }
 
 async function terminateSession(sessionId, cId, clientName, dbName, userName, reason) {
@@ -547,7 +791,9 @@ app.delete('/api/events', (req, res) => {
 });
 app.get('/api/settings', (req, res) => {
     try {
-        res.json(settings);
+        // Don't send decrypted passwords to client - replace with placeholder
+        const safeSettings = prepareSettingsForResponse(settings);
+        res.json(safeSettings);
     } catch (error) {
         console.error('Error getting settings:', error);
         res.status(500).json({ error: 'Failed to get settings' });
@@ -555,9 +801,66 @@ app.get('/api/settings', (req, res) => {
 });
 app.post('/api/settings', (req, res) => {
     try {
-        settings = { ...settings, ...req.body };
+        const oldMssqlSettings = {
+            server: settings.mssqlServer,
+            port: settings.mssqlPort,
+            database: settings.mssqlDatabase,
+            user: settings.mssqlUser,
+            password: settings.mssqlPassword,
+            enabled: settings.mssqlEnabled
+        };
+        
+        // Handle password fields - if client sends '***ENCRYPTED***', keep existing encrypted password
+        const newSettings = { ...req.body };
+        
+        // Load current encrypted passwords from file
+        const currentEncryptedSettings = loadJSON(SETTINGS_FILE, {});
+        
+        // If password field is '***ENCRYPTED***' or empty, keep existing encrypted password
+        if (newSettings.clusterPass === '***ENCRYPTED***' || newSettings.clusterPass === '') {
+            if (currentEncryptedSettings.clusterPass) {
+                // Keep existing encrypted password, but decrypt it for in-memory use
+                delete newSettings.clusterPass; // Don't overwrite
+                // Current decrypted password in memory will remain
+            } else {
+                delete newSettings.clusterPass; // No password to keep
+            }
+        }
+        
+        if (newSettings.mssqlPassword === '***ENCRYPTED***' || newSettings.mssqlPassword === '') {
+            if (currentEncryptedSettings.mssqlPassword) {
+                // Keep existing encrypted password
+                delete newSettings.mssqlPassword; // Don't overwrite
+            } else {
+                delete newSettings.mssqlPassword; // No password to keep
+            }
+        }
+        
+        // Merge new settings with existing (preserving passwords that weren't changed)
+        settings = { ...settings, ...newSettings };
         saveData();
-        res.json(settings);
+        
+        // Clear MSSQL cache if settings changed
+        const newMssqlSettings = {
+            server: settings.mssqlServer,
+            port: settings.mssqlPort,
+            database: settings.mssqlDatabase,
+            user: settings.mssqlUser,
+            password: settings.mssqlPassword,
+            enabled: settings.mssqlEnabled
+        };
+        
+        if (JSON.stringify(oldMssqlSettings) !== JSON.stringify(newMssqlSettings)) {
+            databaseSizesCache = {
+                data: {},
+                timestamp: null,
+                ttl: 300000
+            };
+        }
+        
+        // Return safe settings (with encrypted placeholder)
+        const safeSettings = prepareSettingsForResponse(settings);
+        res.json(safeSettings);
     } catch (error) {
         console.error('Error saving settings:', error);
         res.status(500).json({ error: 'Failed to save settings' });
@@ -604,6 +907,76 @@ app.post('/api/test-connection', async (req, res) => {
     }
 });
 
+app.post('/api/test-mssql-connection', async (req, res) => {
+    if (!mssql) {
+        return res.json({
+            success: false,
+            error: 'Пакет mssql не установлен. Установите его через npm install mssql'
+        });
+    }
+
+    // Save original settings before test
+    const oldSettings = { ...settings };
+    
+    try {
+        const tempSettings = { ...settings, ...req.body };
+        
+        if (!tempSettings.mssqlServer || !tempSettings.mssqlUser || !tempSettings.mssqlPassword) {
+            return res.json({
+                success: false,
+                error: 'Необходимо указать сервер, пользователя и пароль для подключения к MSSQL'
+            });
+        }
+
+        const config = {
+            server: tempSettings.mssqlServer,
+            port: parseInt(tempSettings.mssqlPort) || 1433,
+            database: tempSettings.mssqlDatabase || 'master',
+            user: tempSettings.mssqlUser,
+            password: tempSettings.mssqlPassword,
+            options: {
+                encrypt: false,
+                trustServerCertificate: true,
+                enableArithAbort: true,
+                requestTimeout: 10000 // 10 seconds for test
+            }
+        };
+
+        let pool = null;
+        try {
+            pool = await mssql.connect(config);
+            const request = pool.request();
+            
+            // Simple test query
+            const result = await request.query('SELECT @@VERSION AS Version');
+            
+            // Close connection
+            await pool.close();
+            
+            res.json({
+                success: true,
+                message: 'Подключение к MSSQL установлено успешно',
+                version: result.recordset[0]?.Version || 'Unknown'
+            });
+        } catch (error) {
+            if (pool) {
+                try {
+                    await pool.close();
+                } catch (e) {
+                    // Ignore close errors
+                }
+            }
+            throw error;
+        }
+    } catch (error) {
+        console.error('Error in test-mssql-connection:', error);
+        res.json({
+            success: false,
+            error: `Ошибка подключения к MSSQL: ${error.message || 'Неизвестная ошибка'}`
+        });
+    }
+});
+
 app.get('/api/infobases', (req, res) => {
     const list = Object.entries(dbMap).map(([uuid, name]) => ({ name, uuid }));
     res.json(list);
@@ -615,8 +988,59 @@ app.get('/api/dashboard/stats', async (req, res) => {
         // Get server metrics
         const serverMetrics = await getServerMetrics();
         
+        // Get database sizes from MSSQL if enabled
+        let databaseSizes = {};
+        if (settings.mssqlEnabled) {
+            try {
+                databaseSizes = await getCachedDatabaseSizes();
+            } catch (error) {
+                console.error('Error fetching database sizes:', error);
+                // Use cached data if available even on error
+                databaseSizes = databaseSizesCache.data || {};
+            }
+        }
+        
+        // Get all databases from 1C (from dbMap)
+        const allDatabasesFrom1C = Object.values(dbMap);
+        const databasesWithSessions = Object.keys(dashboardStats.databaseStats);
+        const dbNamesFromMSSQL = Object.keys(databaseSizes);
+        
+        // Combine all databases: from 1C and from MSSQL
+        const allDatabaseNames = new Set([...allDatabasesFrom1C, ...dbNamesFromMSSQL]);
+        
+        if (settings.mssqlEnabled) {
+            console.log('[DB MATCHING] All databases from 1C:', allDatabasesFrom1C.join(', '));
+            console.log('[DB MATCHING] All databases from MSSQL:', dbNamesFromMSSQL.join(', '));
+        }
+        
+        // Build complete database stats with all databases
+        const databaseStatsWithSizes = {};
+        allDatabaseNames.forEach(dbName => {
+            // Get session count (0 if no active sessions)
+            const sessions = dashboardStats.databaseStats[dbName]?.sessions || 0;
+            
+            // Try to find size from MSSQL
+            let sizeMB = databaseSizes[dbName];
+            
+            // If not found, try case-insensitive match
+            if (sizeMB === undefined) {
+                const matchKey = dbNamesFromMSSQL.find(key => 
+                    key.toLowerCase() === dbName.toLowerCase()
+                );
+                if (matchKey) {
+                    sizeMB = databaseSizes[matchKey];
+                    console.log(`[DB MATCHING] Case-insensitive match: "${dbName}" = "${matchKey}"`);
+                }
+            }
+            
+            databaseStatsWithSizes[dbName] = {
+                sessions: sessions,
+                sizeMB: sizeMB || undefined
+            };
+        });
+        
         res.json({
-            databaseStats: dashboardStats.databaseStats,
+            databaseStats: databaseStatsWithSizes,
             connectionTypes: dashboardStats.connectionTypes,
             clusterStatus: dashboardStats.clusterStatus,
             serverMetrics: serverMetrics,

@@ -54,6 +54,13 @@ export interface AppSettings {
   // Optional future fields
   emailSmtpHost?: string;
   telegramBotToken?: string;
+  // MSSQL Integration
+  mssqlEnabled?: boolean;
+  mssqlServer?: string;
+  mssqlPort?: number;
+  mssqlDatabase?: string;
+  mssqlUser?: string;
+  mssqlPassword?: string;
 }
 
 export interface AIAnalysisResult {

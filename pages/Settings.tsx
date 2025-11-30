@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Save, Server, Shield, AlertTriangle, Zap, Terminal, CheckCircle2, Loader2, XCircle } from 'lucide-react';
+import { Save, Server, Shield, AlertTriangle, Zap, Terminal, CheckCircle2, Loader2, XCircle, Database } from 'lucide-react';
 import { AppSettings } from '../types';
 
 const Settings = () => {
@@ -8,9 +8,19 @@ const Settings = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   
+  // Track which passwords were encrypted (to handle '***ENCRYPTED***' placeholder)
+  const [encryptedPasswords, setEncryptedPasswords] = useState<{
+    clusterPass: boolean;
+    mssqlPassword: boolean;
+  }>({ clusterPass: false, mssqlPassword: false });
+  
   // Connection Test State
   const [testingConnection, setTestingConnection] = useState(false);
   const [testResult, setTestResult] = useState<{success: boolean; message: string} | null>(null);
+  
+  // MSSQL Connection Test State
+  const [testingMssqlConnection, setTestingMssqlConnection] = useState(false);
+  const [testMssqlResult, setTestMssqlResult] = useState<{success: boolean; message: string} | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -25,7 +35,20 @@ const Settings = () => {
         return res.json();
       })
       .then(data => {
-        setSettings(data);
+        // Track which passwords are encrypted (marked as '***ENCRYPTED***')
+        setEncryptedPasswords({
+          clusterPass: data.clusterPass === '***ENCRYPTED***',
+          mssqlPassword: data.mssqlPassword === '***ENCRYPTED***'
+        });
+        
+        // Replace encrypted placeholders with empty strings for display
+        const displaySettings = {
+          ...data,
+          clusterPass: data.clusterPass === '***ENCRYPTED***' ? '' : (data.clusterPass || ''),
+          mssqlPassword: data.mssqlPassword === '***ENCRYPTED***' ? '' : (data.mssqlPassword || '')
+        };
+        
+        setSettings(displaySettings);
         setLoading(false);
       })
       .catch(err => {
@@ -59,12 +82,44 @@ const Settings = () => {
     if (!settings) return;
     setSaving(true);
     try {
+      // Prepare settings for saving - handle password encryption
+      const settingsToSave = { ...settings };
+      
+      // If password field is empty and was encrypted before, send '***ENCRYPTED***' to keep existing encrypted password
+      if (!settingsToSave.clusterPass || settingsToSave.clusterPass.trim() === '') {
+        if (encryptedPasswords.clusterPass) {
+          settingsToSave.clusterPass = '***ENCRYPTED***';
+        }
+      }
+      
+      if (!settingsToSave.mssqlPassword || settingsToSave.mssqlPassword.trim() === '') {
+        if (encryptedPasswords.mssqlPassword) {
+          settingsToSave.mssqlPassword = '***ENCRYPTED***';
+        }
+      }
+      
       const res = await fetch('/api/settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(settings)
+        body: JSON.stringify(settingsToSave)
       });
+      
       if (res.ok) {
+        const savedData = await res.json();
+        // Update encrypted passwords tracking
+        setEncryptedPasswords({
+          clusterPass: savedData.clusterPass === '***ENCRYPTED***',
+          mssqlPassword: savedData.mssqlPassword === '***ENCRYPTED***'
+        });
+        
+        // Update settings with saved data (replace encrypted placeholders)
+        const displaySettings = {
+          ...savedData,
+          clusterPass: savedData.clusterPass === '***ENCRYPTED***' ? '' : (savedData.clusterPass || ''),
+          mssqlPassword: savedData.mssqlPassword === '***ENCRYPTED***' ? '' : (savedData.mssqlPassword || '')
+        };
+        setSettings(displaySettings);
+        
         alert('Настройки успешно сохранены');
       } else {
         alert('Ошибка сохранения');
@@ -129,6 +184,55 @@ const Settings = () => {
     }
   };
 
+  const handleTestMssqlConnection = async () => {
+    if (!settings) return;
+    setTestingMssqlConnection(true);
+    setTestMssqlResult(null);
+    
+    try {
+      const res = await fetch('/api/test-mssql-connection', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(settings)
+      });
+      
+      if (!res.ok) {
+        throw new Error(`HTTP error! status: ${res.status}`);
+      }
+      
+      const text = await res.text();
+      if (!text || text.trim().length === 0) {
+        throw new Error('Пустой ответ от сервера');
+      }
+      
+      let data;
+      try {
+        data = JSON.parse(text);
+      } catch (parseError) {
+        throw new Error(`Неверный формат ответа: ${text.substring(0, 100)}`);
+      }
+      
+      if (data.success) {
+        setTestMssqlResult({ 
+            success: true, 
+            message: `Соединение с MSSQL установлено!\n${data.message || ''}` 
+        });
+      } else {
+        setTestMssqlResult({ 
+            success: false, 
+            message: `${data.error || 'Неизвестная ошибка'}` 
+        });
+      }
+    } catch (e: any) {
+      const errorMessage = e.message || 'Неизвестная ошибка сети';
+      setTestMssqlResult({ 
+        success: false, 
+        message: `Ошибка соединения:\n${errorMessage}` 
+      });
+    } finally {
+      setTestingMssqlConnection(false);
+    }
+  };
 
   if (loading || !settings) {
     return (
@@ -245,7 +349,126 @@ const Settings = () => {
           </div>
         </div>
 
-        {/* Секция 2: Активный контроль (Kill Mode) */}
+        {/* Секция 2: Интеграция с MSSQL */}
+        <div className="p-6 border-b border-slate-200">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="p-2 bg-purple-100 text-purple-600 rounded-lg">
+              <Database size={24} />
+            </div>
+            <h2 className="text-lg font-semibold text-slate-800">Интеграция с MSSQL</h2>
+          </div>
+          
+          <div className="mb-4">
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={settings.mssqlEnabled || false}
+                onChange={(e) => handleChange('mssqlEnabled', e.target.checked)}
+                className="w-5 h-5 text-indigo-600 border-slate-300 rounded focus:ring-indigo-500"
+              />
+              <span className="text-sm font-medium text-slate-700">
+                Включить интеграцию с MSSQL для получения размеров баз данных
+              </span>
+            </label>
+            <p className="text-xs text-slate-400 ml-8 mt-1">
+              Позволяет отображать размеры баз данных 1С на дашборде
+            </p>
+          </div>
+
+          {settings.mssqlEnabled && (
+            <>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-slate-700">Сервер MSSQL</label>
+                  <input 
+                    type="text" 
+                    value={settings.mssqlServer || ''}
+                    onChange={(e) => handleChange('mssqlServer', e.target.value)}
+                    placeholder="localhost"
+                    className="w-full p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" 
+                  />
+                  <p className="text-xs text-slate-400">Адрес сервера SQL Server</p>
+                </div>
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-slate-700">Порт</label>
+                  <input 
+                    type="number" 
+                    value={settings.mssqlPort || 1433}
+                    onChange={(e) => handleChange('mssqlPort', parseInt(e.target.value) || 1433)}
+                    className="w-full p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" 
+                  />
+                  <p className="text-xs text-slate-400">Порт SQL Server (по умолчанию 1433)</p>
+                </div>
+                
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-slate-700">База данных для подключения</label>
+                  <input 
+                    type="text" 
+                    value={settings.mssqlDatabase || 'master'}
+                    onChange={(e) => handleChange('mssqlDatabase', e.target.value)}
+                    placeholder="master"
+                    className="w-full p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" 
+                  />
+                  <p className="text-xs text-slate-400">Обычно 'master' или 'msdb'</p>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="block text-sm font-medium text-slate-700">Пользователь SQL Server</label>
+                  <input 
+                    type="text" 
+                    value={settings.mssqlUser || ''}
+                    onChange={(e) => handleChange('mssqlUser', e.target.value)}
+                    placeholder="sa"
+                    className="w-full p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" 
+                  />
+                </div>
+
+                <div className="space-y-2 md:col-span-2">
+                  <label className="block text-sm font-medium text-slate-700">Пароль</label>
+                  <input 
+                    type="password" 
+                    value={settings.mssqlPassword || ''}
+                    onChange={(e) => handleChange('mssqlPassword', e.target.value)}
+                    placeholder="••••••••" 
+                    className="w-full p-2.5 border border-slate-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500" 
+                  />
+                </div>
+              </div>
+
+              {/* MSSQL Connection Test Block */}
+              <div className="mt-6 bg-slate-50 rounded-lg p-4 border border-slate-200">
+                 <div className="flex justify-between items-center mb-2">
+                     <h3 className="text-sm font-semibold text-slate-700">Статус подключения к MSSQL</h3>
+                     <button 
+                       onClick={handleTestMssqlConnection}
+                       disabled={testingMssqlConnection}
+                       className="text-xs bg-white border border-slate-300 hover:bg-slate-100 text-slate-700 px-3 py-1 rounded transition-colors flex items-center gap-2"
+                     >
+                       {testingMssqlConnection ? <Loader2 className="animate-spin" size={12}/> : <Database size={12}/>}
+                       Проверить соединение
+                     </button>
+                 </div>
+                 
+                 {testMssqlResult && (
+                     <div className={`text-xs font-mono p-3 rounded border overflow-x-auto whitespace-pre-wrap ${testMssqlResult.success ? 'bg-green-50 border-green-200 text-green-800' : 'bg-red-50 border-red-200 text-red-800'}`}>
+                        <div className="flex items-center gap-2 mb-1 font-bold">
+                            {testMssqlResult.success ? <CheckCircle2 size={14}/> : <XCircle size={14}/>}
+                            {testMssqlResult.success ? 'УСПЕХ (SUCCESS)' : 'ОШИБКА (ERROR)'}
+                        </div>
+                        {testMssqlResult.message}
+                     </div>
+                 )}
+                 {!testMssqlResult && !testingMssqlConnection && (
+                     <div className="text-xs text-slate-400 italic">
+                         Нажмите кнопку, чтобы проверить подключение к SQL Server.
+                     </div>
+                 )}
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* Секция 3: Активный контроль (Kill Mode) */}
         <div className={`p-6 border-b border-slate-200 transition-colors ${settings.killMode ? 'bg-red-50/50' : 'bg-white'}`}>
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-3">
