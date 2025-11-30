@@ -29,7 +29,7 @@ import {
 } from 'recharts';
 import StatCard from '../components/StatCard';
 import { Client, SystemEvent } from '../types';
-import { analyzeSystemHealth } from '../services/geminiService';
+// AI analysis moved to server-side API
 
 interface DashboardProps {
   clients: Client[];
@@ -123,9 +123,26 @@ const Dashboard: React.FC<DashboardProps> = ({ clients, events }) => {
 
   const handleGenerateInsight = async () => {
     setLoadingAi(true);
-    const insight = await analyzeSystemHealth(clients, events);
-    setAiInsight(insight);
-    setLoadingAi(false);
+    try {
+      const response = await fetch('/api/ai/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clients, events })
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        setAiInsight(data.insight);
+      } else {
+        const error = await response.json();
+        setAiInsight(`Ошибка: ${error.message || 'Не удалось выполнить анализ'}`);
+      }
+    } catch (error: any) {
+      console.error('Error generating insight:', error);
+      setAiInsight(`Ошибка соединения: ${error.message || 'Неизвестная ошибка'}`);
+    } finally {
+      setLoadingAi(false);
+    }
   };
 
   // Prepare data for database list - show all databases, sorted by size (if available) or name

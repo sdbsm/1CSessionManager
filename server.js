@@ -98,11 +98,17 @@ let dashboardStats = {
     lastUpdate: null
 };
 
+// Constants
+const MAX_EVENTS_HISTORY = 100; // Maximum number of events to keep in history
+const DATABASE_SIZES_CACHE_TTL = 300000; // 5 minutes in milliseconds
+const RAC_TIMEOUT = 30000; // 30 seconds timeout for RAC commands
+const POWERSHELL_TIMEOUT = 5000; // 5 seconds timeout for PowerShell commands
+
 // MSSQL Database sizes cache
 let databaseSizesCache = {
     data: {}, // { dbName: sizeInMB }
     timestamp: null,
-    ttl: 300000 // 5 minutes in milliseconds
+    ttl: DATABASE_SIZES_CACHE_TTL
 };
 
 function saveData() {
@@ -113,14 +119,14 @@ function saveData() {
         const settingsToSave = encryptSettingsPasswords({ ...settings });
         fs.writeFileSync(SETTINGS_FILE, JSON.stringify(settingsToSave, null, 2));
         
-        fs.writeFileSync(EVENTS_FILE, JSON.stringify(events.slice(0, 100), null, 2));
+        fs.writeFileSync(EVENTS_FILE, JSON.stringify(events.slice(0, MAX_EVENTS_HISTORY), null, 2));
     } catch (e) { console.error("Save Error:", e); }
 }
 
 function logEvent(level, message) {
     const event = { id: Date.now().toString(), timestamp: new Date().toLocaleString('ru-RU'), level, message };
     events.unshift(event);
-    if (events.length > 100) events.pop();
+    if (events.length > MAX_EVENTS_HISTORY) events.pop();
     saveData();
     console.log(`[${level.toUpperCase()}] ${message}`);
 }
@@ -252,7 +258,7 @@ function runRac(args) {
             encoding: 'binary', // Capture raw bytes for iconv
             maxBuffer: 10 * 1024 * 1024,
             windowsHide: true,
-            timeout: 30000 // 30s timeout safety
+            timeout: RAC_TIMEOUT
         };
 
         execFile(racPath, fullArgs, options, (err, stdout, stderr) => {
@@ -331,10 +337,11 @@ async function getClusterId() {
 function getServerMetrics() {
     return new Promise((resolve) => {
         // Получаем память
-        const memCmd = `powershell -Command "$os = Get-CimInstance Win32_OperatingSystem; Write-Output $os.TotalVisibleMemorySize; Write-Output $os.FreePhysicalMemory"`;
+        const memCmd = `powershell -Command "$ProgressPreference = 'SilentlyContinue'; $os = Get-CimInstance Win32_OperatingSystem; Write-Output $os.TotalVisibleMemorySize; Write-Output $os.FreePhysicalMemory"`;
         
         exec(memCmd, { 
-            timeout: 5000,
+            encoding: 'binary', // Capture raw bytes for iconv
+            timeout: POWERSHELL_TIMEOUT,
             windowsHide: true,
             maxBuffer: 1024 * 1024 
         }, (memError, memStdout, memStderr) => {
@@ -342,7 +349,31 @@ function getServerMetrics() {
             
             if (!memError && memStdout) {
                 try {
-                    const memLines = memStdout.trim().split('\n').filter(l => l.trim());
+                    // Декодируем CP866 в UTF-8 для русского текста
+                    let output = memStdout;
+                    if (iconv) {
+                        try {
+                            output = iconv.decode(Buffer.from(memStdout, 'binary'), 'cp866');
+                        } catch (e) {
+                            output = memStdout.toString();
+                        }
+                    } else {
+                        output = memStdout.toString();
+                    }
+                    
+                    // Фильтруем CLIXML строки
+                    const cleanOutput = output
+                        .split('\n')
+                        .filter(line => {
+                            const trimmed = line.trim();
+                            return trimmed !== '' && 
+                                   !trimmed.startsWith('#< CLIXML') && 
+                                   !trimmed.startsWith('<Objs') &&
+                                   !trimmed.includes('xmlns="http://schemas.microsoft.com/powershell/2004/04"');
+                        })
+                        .join('\n');
+                    
+                    const memLines = cleanOutput.trim().split('\n').filter(l => l.trim());
                     const totalMemKB = parseInt(memLines[0]?.trim() || '0');
                     const freeMemKB = parseInt(memLines[1]?.trim() || '0');
                     const usedMemKB = totalMemKB - freeMemKB;
@@ -361,10 +392,11 @@ function getServerMetrics() {
             }
             
             // Получаем CPU через WMI (более надежный способ)
-            const cpuCmd = `powershell -Command "$cpu = Get-WmiObject Win32_Processor | Measure-Object -property LoadPercentage -Average; Write-Output $cpu.Average"`;
+            const cpuCmd = `powershell -Command "$ProgressPreference = 'SilentlyContinue'; $cpu = Get-WmiObject Win32_Processor | Measure-Object -property LoadPercentage -Average; Write-Output $cpu.Average"`;
             
             exec(cpuCmd, { 
-                timeout: 5000,
+                encoding: 'binary', // Capture raw bytes for iconv
+                timeout: POWERSHELL_TIMEOUT,
                 windowsHide: true,
                 maxBuffer: 1024 * 1024 
             }, (cpuError, cpuStdout, cpuStderr) => {
@@ -372,7 +404,31 @@ function getServerMetrics() {
                 
                 if (!cpuError && cpuStdout) {
                     try {
-                        const cpuValue = parseFloat(cpuStdout.trim());
+                        // Декодируем CP866 в UTF-8
+                        let output = cpuStdout;
+                        if (iconv) {
+                            try {
+                                output = iconv.decode(Buffer.from(cpuStdout, 'binary'), 'cp866');
+                            } catch (e) {
+                                output = cpuStdout.toString();
+                            }
+                        } else {
+                            output = cpuStdout.toString();
+                        }
+                        
+                        // Фильтруем CLIXML
+                        const cleanOutput = output
+                            .split('\n')
+                            .filter(line => {
+                                const trimmed = line.trim();
+                                return trimmed !== '' && 
+                                       !trimmed.startsWith('#< CLIXML') && 
+                                       !trimmed.startsWith('<Objs') &&
+                                       !trimmed.includes('xmlns="http://schemas.microsoft.com/powershell/2004/04"');
+                            })
+                            .join('\n');
+                        
+                        const cpuValue = parseFloat(cleanOutput.trim());
                         if (!isNaN(cpuValue)) {
                             cpu = Math.round(cpuValue);
                         }
@@ -383,16 +439,41 @@ function getServerMetrics() {
                 
                 // Если CPU не удалось получить через WMI, пробуем альтернативный способ
                 if (cpu === 0 || isNaN(cpu)) {
-                    const altCpuCmd = `powershell -Command "$proc = Get-Counter '\\Processor(_Total)\\% Processor Time' -ErrorAction SilentlyContinue; if ($proc) { $proc.CounterSamples.CookedValue }"`;
+                    const altCpuCmd = `powershell -Command "$ProgressPreference = 'SilentlyContinue'; $proc = Get-Counter '\\Processor(_Total)\\% Processor Time' -ErrorAction SilentlyContinue; if ($proc) { $proc.CounterSamples.CookedValue }"`;
                     
                     exec(altCpuCmd, { 
-                        timeout: 3000,
+                        encoding: 'binary', // Capture raw bytes for iconv
+                        timeout: POWERSHELL_TIMEOUT,
                         windowsHide: true,
                         maxBuffer: 1024 * 1024 
                     }, (altCpuError, altCpuStdout, altCpuStderr) => {
                         if (!altCpuError && altCpuStdout) {
                             try {
-                                const altCpuValue = parseFloat(altCpuStdout.trim());
+                                // Декодируем CP866 в UTF-8
+                                let output = altCpuStdout;
+                                if (iconv) {
+                                    try {
+                                        output = iconv.decode(Buffer.from(altCpuStdout, 'binary'), 'cp866');
+                                    } catch (e) {
+                                        output = altCpuStdout.toString();
+                                    }
+                                } else {
+                                    output = altCpuStdout.toString();
+                                }
+                                
+                                // Фильтруем CLIXML
+                                const cleanOutput = output
+                                    .split('\n')
+                                    .filter(line => {
+                                        const trimmed = line.trim();
+                                        return trimmed !== '' && 
+                                               !trimmed.startsWith('#< CLIXML') && 
+                                               !trimmed.startsWith('<Objs') &&
+                                               !trimmed.includes('xmlns="http://schemas.microsoft.com/powershell/2004/04"');
+                                    })
+                                    .join('\n');
+                                
+                                const altCpuValue = parseFloat(cleanOutput.trim());
                                 if (!isNaN(altCpuValue)) {
                                     cpu = Math.round(altCpuValue);
                                 }
@@ -416,11 +497,11 @@ function getServerMetrics() {
  */
 function getServerInfo() {
     return new Promise((resolve) => {
-        const cmd = `powershell -Command "$os = Get-CimInstance Win32_OperatingSystem; $hostname = $env:COMPUTERNAME; Write-Output $hostname; Write-Output $os.Caption"`;
+        const cmd = `powershell -Command "$ProgressPreference = 'SilentlyContinue'; $os = Get-CimInstance Win32_OperatingSystem; $hostname = $env:COMPUTERNAME; Write-Output $hostname; Write-Output $os.Caption"`;
         
         exec(cmd, { 
             encoding: 'binary', // Capture raw bytes for iconv
-            timeout: 5000,
+            timeout: POWERSHELL_TIMEOUT,
             windowsHide: true,
             maxBuffer: 1024 * 1024 
         }, (error, stdout, stderr) => {
@@ -441,7 +522,19 @@ function getServerInfo() {
                         output = stdout.toString();
                     }
                     
-                    const lines = output.trim().split('\n').filter(l => l.trim());
+                    // Фильтруем CLIXML строки
+                    const cleanOutput = output
+                        .split('\n')
+                        .filter(line => {
+                            const trimmed = line.trim();
+                            return trimmed !== '' && 
+                                   !trimmed.startsWith('#< CLIXML') && 
+                                   !trimmed.startsWith('<Objs') &&
+                                   !trimmed.includes('xmlns="http://schemas.microsoft.com/powershell/2004/04"');
+                        })
+                        .join('\n');
+                    
+                    const lines = cleanOutput.trim().split('\n').filter(l => l.trim());
                     hostname = lines[0]?.trim() || process.env.COMPUTERNAME || os.hostname();
                     osVersion = lines[1]?.trim() || 'Unknown';
                 } catch (e) {
@@ -757,27 +850,123 @@ setTimeout(monitorRoutine, 3000);
 
 // --- ROUTES ---
 
-app.get('/api/clients', (req, res) => res.json(clients));
+app.get('/api/clients', (req, res) => {
+    try {
+        res.json(clients);
+    } catch (error) {
+        console.error('Error getting clients:', error);
+        res.status(500).json({ error: 'Failed to get clients', message: error.message });
+    }
+});
 app.post('/api/clients', (req, res) => {
-    clients.push({ ...req.body, id: Date.now().toString(), activeSessions: 0 });
-    saveData();
-    res.json(clients[clients.length - 1]);
+    try {
+        // Basic validation
+        if (!req.body || typeof req.body !== 'object') {
+            return res.status(400).json({ error: 'Invalid request body' });
+        }
+        
+        if (!req.body.name || typeof req.body.name !== 'string' || req.body.name.trim() === '') {
+            return res.status(400).json({ error: 'Client name is required' });
+        }
+        
+        if (typeof req.body.maxSessions !== 'number' || req.body.maxSessions < 0) {
+            return res.status(400).json({ error: 'maxSessions must be a non-negative number' });
+        }
+        
+        // Ensure databases is an array
+        if (!Array.isArray(req.body.databases)) {
+            req.body.databases = [];
+        }
+        
+        const newClient = {
+            ...req.body,
+            id: Date.now().toString(),
+            activeSessions: 0,
+            status: req.body.status || 'active',
+            databases: req.body.databases.map(db => ({
+                name: db.name || '',
+                activeSessions: 0
+            }))
+        };
+        
+        clients.push(newClient);
+        saveData();
+        logEvent('info', `Клиент добавлен: ${newClient.name}`);
+        res.json(newClient);
+    } catch (error) {
+        console.error('Error adding client:', error);
+        res.status(500).json({ error: 'Failed to add client', message: error.message });
+    }
 });
 app.put('/api/clients/:id', (req, res) => {
-    const idx = clients.findIndex(c => c.id === req.params.id);
-    if (idx !== -1) {
-        clients[idx] = { ...clients[idx], ...req.body };
+    try {
+        const idx = clients.findIndex(c => c.id === req.params.id);
+        if (idx === -1) {
+            return res.status(404).json({ error: 'Client not found' });
+        }
+        
+        // Basic validation
+        if (req.body.name !== undefined && (typeof req.body.name !== 'string' || req.body.name.trim() === '')) {
+            return res.status(400).json({ error: 'Client name must be a non-empty string' });
+        }
+        
+        if (req.body.maxSessions !== undefined && (typeof req.body.maxSessions !== 'number' || req.body.maxSessions < 0)) {
+            return res.status(400).json({ error: 'maxSessions must be a non-negative number' });
+        }
+        
+        // Preserve activeSessions and ensure databases structure
+        const updatedClient = {
+            ...clients[idx],
+            ...req.body,
+            id: req.params.id, // Prevent ID change
+            activeSessions: clients[idx].activeSessions, // Preserve current sessions
+            databases: Array.isArray(req.body.databases) 
+                ? req.body.databases.map(db => ({
+                    name: db.name || '',
+                    activeSessions: db.activeSessions || 0
+                }))
+                : clients[idx].databases
+        };
+        
+        clients[idx] = updatedClient;
         saveData();
-        res.json(clients[idx]);
-    } else res.sendStatus(404);
+        logEvent('info', `Клиент обновлен: ${updatedClient.name}`);
+        res.json(updatedClient);
+    } catch (error) {
+        console.error('Error updating client:', error);
+        res.status(500).json({ error: 'Failed to update client', message: error.message });
+    }
 });
 app.delete('/api/clients/:id', (req, res) => {
-    clients = clients.filter(c => c.id !== req.params.id);
-    saveData();
-    res.json({ success: true });
+    try {
+        const clientId = req.params.id;
+        if (!clientId) {
+            return res.status(400).json({ error: 'Client ID is required' });
+        }
+        
+        const clientExists = clients.some(c => c.id === clientId);
+        if (!clientExists) {
+            return res.status(404).json({ error: 'Client not found' });
+        }
+        
+        clients = clients.filter(c => c.id !== clientId);
+        saveData();
+        logEvent('info', `Клиент удален: ID ${clientId}`);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Error deleting client:', error);
+        res.status(500).json({ error: 'Failed to delete client', message: error.message });
+    }
 });
 
-app.get('/api/events', (req, res) => res.json(events));
+app.get('/api/events', (req, res) => {
+    try {
+        res.json(events);
+    } catch (error) {
+        console.error('Error getting events:', error);
+        res.status(500).json({ error: 'Failed to get events', message: error.message });
+    }
+});
 app.delete('/api/events', (req, res) => {
     try {
         events = [];
@@ -978,8 +1167,13 @@ app.post('/api/test-mssql-connection', async (req, res) => {
 });
 
 app.get('/api/infobases', (req, res) => {
-    const list = Object.entries(dbMap).map(([uuid, name]) => ({ name, uuid }));
-    res.json(list);
+    try {
+        const list = Object.entries(dbMap).map(([uuid, name]) => ({ name, uuid }));
+        res.json(list);
+    } catch (error) {
+        console.error('Error getting infobases:', error);
+        res.status(500).json({ error: 'Failed to get infobases', message: error.message });
+    }
 });
 
 // Dashboard API endpoints
@@ -1114,6 +1308,39 @@ app.get('/api/server/info', async (req, res) => {
     }
 });
 
+// AI Analysis endpoint (server-side only to protect API key)
+app.post('/api/ai/analyze', async (req, res) => {
+    try {
+        // Import geminiService only on server side
+        let geminiService;
+        try {
+            const geminiModule = await import('./services/geminiService.js');
+            geminiService = geminiModule;
+        } catch (e) {
+            console.error("Notice: Gemini service not available.");
+            return res.status(503).json({ 
+                error: 'AI analysis service not available',
+                message: 'Please check API key configuration'
+            });
+        }
+
+        const { clients: clientData, events: eventData } = req.body;
+        
+        if (!clientData || !eventData) {
+            return res.status(400).json({ error: 'clients and events data required' });
+        }
+
+        const insight = await geminiService.analyzeSystemHealth(clientData, eventData);
+        res.json({ insight });
+    } catch (error) {
+        console.error('Error in AI analysis:', error);
+        res.status(500).json({ 
+            error: 'Failed to perform AI analysis',
+            message: error.message 
+        });
+    }
+});
+
 // Serve static files from dist (Vite build output) or public
 // This is placed after API routes to ensure API requests are not intercepted
 const staticDir = fs.existsSync(path.join(__dirname, 'dist')) 
@@ -1127,6 +1354,25 @@ app.get(/.*/, (req, res) => {
         ? path.join(__dirname, 'dist', 'index.html')
         : path.join(__dirname, 'public', 'index.html');
     res.sendFile(indexPath);
+});
+
+// Global error handlers
+process.on('uncaughtException', (error) => {
+    console.error('[FATAL] Uncaught Exception:', error);
+    logEvent('critical', `Критическая ошибка: ${error.message}`);
+    // Don't exit in production, but log the error
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('[FATAL] Unhandled Rejection at:', promise, 'reason:', reason);
+    logEvent('critical', `Необработанное отклонение промиса: ${reason}`);
+});
+
+// Express error handler middleware
+app.use((err, req, res, next) => {
+    console.error('[API ERROR]', err);
+    logEvent('error', `Ошибка API: ${err.message}`);
+    res.status(500).json({ error: 'Internal server error', message: err.message });
 });
 
 app.listen(PORT, () => {

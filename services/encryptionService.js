@@ -34,12 +34,20 @@ export async function encryptPassword(password) {
         // Use base64 encoding to avoid escaping issues with special characters
         const passwordBase64 = Buffer.from(password, 'utf8').toString('base64');
         
+        // Escape single quotes in base64 string to prevent PowerShell injection
+        const escapedBase64 = passwordBase64.replace(/'/g, "''");
+        
         // PowerShell command to encrypt using DPAPI (CurrentUser scope)
         // ConvertTo-SecureString uses DPAPI automatically
-        const psCommand = `$bytes = [System.Convert]::FromBase64String('${passwordBase64}'); $password = [System.Text.Encoding]::UTF8.GetString($bytes); $secure = ConvertTo-SecureString -String $password -AsPlainText -Force; $encrypted = ConvertFrom-SecureString -SecureString $secure; Write-Output $encrypted`;
+        // Using single quotes and escaping to prevent injection
+        // Add $ProgressPreference = 'SilentlyContinue' to suppress progress bars
+        const psCommand = `$ProgressPreference = 'SilentlyContinue'; $bytes = [System.Convert]::FromBase64String('${escapedBase64}'); $password = [System.Text.Encoding]::UTF8.GetString($bytes); $secure = ConvertTo-SecureString -String $password -AsPlainText -Force; $encrypted = ConvertFrom-SecureString -SecureString $secure; Write-Output $encrypted`;
+        
+        // Use -EncodedCommand for additional security (base64 encoded command)
+        const encodedCommand = Buffer.from(psCommand, 'utf16le').toString('base64');
         
         const { stdout, stderr } = await execAsync(
-            `powershell -Command "${psCommand}"`,
+            `powershell -EncodedCommand ${encodedCommand}`,
             {
                 windowsHide: true,
                 timeout: 5000,
@@ -47,12 +55,36 @@ export async function encryptPassword(password) {
             }
         );
 
-        if (stderr && stderr.trim()) {
-            console.error('[ENCRYPTION] PowerShell error:', stderr);
+        // Filter CLIXML from stderr before checking
+        const cleanStderr = stderr ? stderr
+            .split('\n')
+            .filter(line => {
+                const trimmed = line.trim();
+                return trimmed !== '' && 
+                       !trimmed.startsWith('#< CLIXML') && 
+                       !trimmed.startsWith('<Objs') &&
+                       !trimmed.includes('xmlns="http://schemas.microsoft.com/powershell/2004/04"');
+            })
+            .join('\n') : '';
+
+        if (cleanStderr && cleanStderr.trim()) {
+            console.error('[ENCRYPTION] PowerShell error:', cleanStderr);
             return null;
         }
 
-        const encrypted = stdout.trim();
+        // Filter CLIXML from stdout
+        const cleanStdout = stdout ? stdout
+            .split('\n')
+            .filter(line => {
+                const trimmed = line.trim();
+                return trimmed !== '' && 
+                       !trimmed.startsWith('#< CLIXML') && 
+                       !trimmed.startsWith('<Objs') &&
+                       !trimmed.includes('xmlns="http://schemas.microsoft.com/powershell/2004/04"');
+            })
+            .join('\n') : '';
+
+        const encrypted = cleanStdout.trim();
         
         if (!encrypted) {
             console.error('[ENCRYPTION] Empty encryption result');
@@ -86,11 +118,18 @@ export async function decryptPassword(encryptedPassword) {
         // Use base64 encoding to avoid escaping issues (encrypted strings can contain special chars)
         const encryptedBase64 = Buffer.from(encryptedPassword, 'utf8').toString('base64');
         
+        // Escape single quotes in base64 string to prevent PowerShell injection
+        const escapedBase64 = encryptedBase64.replace(/'/g, "''");
+        
         // PowerShell command to decrypt using DPAPI
-        const psCommand = `$bytes = [System.Convert]::FromBase64String('${encryptedBase64}'); $encrypted = [System.Text.Encoding]::UTF8.GetString($bytes); $secure = ConvertTo-SecureString -String $encrypted; $ptr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure); $password = [System.Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr); [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr); Write-Output $password`;
+        // Add $ProgressPreference = 'SilentlyContinue' to suppress progress bars
+        const psCommand = `$ProgressPreference = 'SilentlyContinue'; $bytes = [System.Convert]::FromBase64String('${escapedBase64}'); $encrypted = [System.Text.Encoding]::UTF8.GetString($bytes); $secure = ConvertTo-SecureString -String $encrypted; $ptr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure); $password = [System.Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr); [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr); Write-Output $password`;
+        
+        // Use -EncodedCommand for additional security (base64 encoded command)
+        const encodedCommand = Buffer.from(psCommand, 'utf16le').toString('base64');
         
         const { stdout, stderr } = await execAsync(
-            `powershell -Command "${psCommand}"`,
+            `powershell -EncodedCommand ${encodedCommand}`,
             {
                 windowsHide: true,
                 timeout: 5000,
@@ -98,12 +137,36 @@ export async function decryptPassword(encryptedPassword) {
             }
         );
 
-        if (stderr && stderr.trim()) {
-            console.error('[ENCRYPTION] PowerShell error:', stderr);
+        // Filter CLIXML from stderr before checking
+        const cleanStderr = stderr ? stderr
+            .split('\n')
+            .filter(line => {
+                const trimmed = line.trim();
+                return trimmed !== '' && 
+                       !trimmed.startsWith('#< CLIXML') && 
+                       !trimmed.startsWith('<Objs') &&
+                       !trimmed.includes('xmlns="http://schemas.microsoft.com/powershell/2004/04"');
+            })
+            .join('\n') : '';
+
+        if (cleanStderr && cleanStderr.trim()) {
+            console.error('[ENCRYPTION] PowerShell error:', cleanStderr);
             return null;
         }
 
-        const decrypted = stdout.trim();
+        // Filter CLIXML from stdout
+        const cleanStdout = stdout ? stdout
+            .split('\n')
+            .filter(line => {
+                const trimmed = line.trim();
+                return trimmed !== '' && 
+                       !trimmed.startsWith('#< CLIXML') && 
+                       !trimmed.startsWith('<Objs') &&
+                       !trimmed.includes('xmlns="http://schemas.microsoft.com/powershell/2004/04"');
+            })
+            .join('\n') : '';
+
+        const decrypted = cleanStdout.trim();
         
         if (!decrypted) {
             console.error('[ENCRYPTION] Empty decryption result');
@@ -134,17 +197,38 @@ export function encryptPasswordSync(password) {
         // Use base64 encoding to avoid escaping issues with special characters
         const passwordBase64 = Buffer.from(password, 'utf8').toString('base64');
         
-        const psCommand = `$bytes = [System.Convert]::FromBase64String('${passwordBase64}'); $password = [System.Text.Encoding]::UTF8.GetString($bytes); $secure = ConvertTo-SecureString -String $password -AsPlainText -Force; $encrypted = ConvertFrom-SecureString -SecureString $secure; Write-Output $encrypted`;
+        // Escape single quotes in base64 string to prevent PowerShell injection
+        const escapedBase64 = passwordBase64.replace(/'/g, "''");
         
-        const encrypted = execSync(
-            `powershell -Command "${psCommand}"`,
+        // Add $ProgressPreference = 'SilentlyContinue' to suppress progress bars
+        const psCommand = `$ProgressPreference = 'SilentlyContinue'; $bytes = [System.Convert]::FromBase64String('${escapedBase64}'); $password = [System.Text.Encoding]::UTF8.GetString($bytes); $secure = ConvertTo-SecureString -String $password -AsPlainText -Force; $encrypted = ConvertFrom-SecureString -SecureString $secure; Write-Output $encrypted`;
+        
+        // Use -EncodedCommand for additional security (base64 encoded command)
+        const encodedCommand = Buffer.from(psCommand, 'utf16le').toString('base64');
+        
+        let encrypted = execSync(
+            `powershell -EncodedCommand ${encodedCommand}`,
             {
                 windowsHide: true,
                 timeout: 5000,
                 maxBuffer: 1024 * 1024,
-                encoding: 'utf8'
+                encoding: 'utf8',
+                stdio: ['pipe', 'pipe', 'ignore'] // Suppress stderr to prevent CLIXML output
             }
         ).trim();
+
+        // Filter CLIXML from stdout
+        encrypted = encrypted
+            .split('\n')
+            .filter(line => {
+                const trimmed = line.trim();
+                return trimmed !== '' && 
+                       !trimmed.startsWith('#< CLIXML') && 
+                       !trimmed.startsWith('<Objs') &&
+                       !trimmed.includes('xmlns="http://schemas.microsoft.com/powershell/2004/04"');
+            })
+            .join('\n')
+            .trim();
 
         return encrypted || null;
     } catch (error) {
@@ -170,17 +254,38 @@ export function decryptPasswordSync(encryptedPassword) {
         // Use base64 encoding to avoid escaping issues (encrypted strings can contain special chars)
         const encryptedBase64 = Buffer.from(encryptedPassword, 'utf8').toString('base64');
         
-        const psCommand = `$bytes = [System.Convert]::FromBase64String('${encryptedBase64}'); $encrypted = [System.Text.Encoding]::UTF8.GetString($bytes); $secure = ConvertTo-SecureString -String $encrypted; $ptr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure); $password = [System.Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr); [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr); Write-Output $password`;
+        // Escape single quotes in base64 string to prevent PowerShell injection
+        const escapedBase64 = encryptedBase64.replace(/'/g, "''");
         
-        const decrypted = execSync(
-            `powershell -Command "${psCommand}"`,
+        // Add $ProgressPreference = 'SilentlyContinue' to suppress progress bars
+        const psCommand = `$ProgressPreference = 'SilentlyContinue'; $bytes = [System.Convert]::FromBase64String('${escapedBase64}'); $encrypted = [System.Text.Encoding]::UTF8.GetString($bytes); $secure = ConvertTo-SecureString -String $encrypted; $ptr = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure); $password = [System.Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr); [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr); Write-Output $password`;
+        
+        // Use -EncodedCommand for additional security (base64 encoded command)
+        const encodedCommand = Buffer.from(psCommand, 'utf16le').toString('base64');
+        
+        let decrypted = execSync(
+            `powershell -EncodedCommand ${encodedCommand}`,
             {
                 windowsHide: true,
                 timeout: 5000,
                 maxBuffer: 1024 * 1024,
-                encoding: 'utf8'
+                encoding: 'utf8',
+                stdio: ['pipe', 'pipe', 'ignore'] // Suppress stderr to prevent CLIXML output
             }
         ).trim();
+
+        // Filter CLIXML from stdout
+        decrypted = decrypted
+            .split('\n')
+            .filter(line => {
+                const trimmed = line.trim();
+                return trimmed !== '' && 
+                       !trimmed.startsWith('#< CLIXML') && 
+                       !trimmed.startsWith('<Objs') &&
+                       !trimmed.includes('xmlns="http://schemas.microsoft.com/powershell/2004/04"');
+            })
+            .join('\n')
+            .trim();
 
         return decrypted || null;
     } catch (error) {
