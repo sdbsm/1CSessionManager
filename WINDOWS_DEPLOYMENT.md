@@ -47,7 +47,7 @@
    DefaultDirName={commonpf64}\1C Session Manager
    DefaultGroupName=1C Session Manager
    OutputDir=.
-   OutputBaseFilename=1CManager_Setup
+   OutputBaseFilename=1C-Session-Manager-Setup
    Compression=lzma2
    SolidCompression=yes
    PrivilegesRequired=admin
@@ -57,8 +57,8 @@
    ; Основной файл сервера
    Source: "server.js"; DestDir: "{app}"; Flags: ignoreversion
    ; Скрипты управления службой
-   Source: "install_service.js"; DestDir: "{app}"; Flags: ignoreversion
-   Source: "uninstall_service.js"; DestDir: "{app}"; Flags: ignoreversion
+   Source: "install_service.cjs"; DestDir: "{app}"; Flags: ignoreversion
+   Source: "uninstall_service.cjs"; DestDir: "{app}"; Flags: ignoreversion
    ; Папка с фронтендом
    Source: "public\*"; DestDir: "{app}\public"; Flags: ignoreversion recursesubdirs createallsubdirs
    ; Зависимости Node.js
@@ -66,11 +66,11 @@
 
    [Run]
    ; Установка и запуск службы после распаковки
-   Filename: "{cmd}"; Parameters: "/C node install_service.js"; WorkingDir: "{app}"; Flags: runhidden
+   Filename: "{cmd}"; Parameters: "/C node install_service.cjs"; WorkingDir: "{app}"; Flags: runhidden
 
    [UninstallRun]
    ; Удаление службы перед удалением файлов
-   Filename: "{cmd}"; Parameters: "/C node uninstall_service.js"; WorkingDir: "{app}"; Flags: runhidden
+   Filename: "{cmd}"; Parameters: "/C node uninstall_service.cjs"; WorkingDir: "{app}"; Flags: runhidden
    ```
 
 2. **ВАЖНО: Проверка структуры папок**
@@ -86,7 +86,7 @@
    * Нажмите кнопку **Compile**.
 
 4. **Результат:**
-   В папке проекта появится файл **`1CManager_Setup.exe`**.
+   В папке проекта появится файл **`1C-Session-Manager-Setup.exe`**.
 
 ---
 
@@ -99,7 +99,7 @@
 * Установлена платформа 1С и запущена служба RAS (порт 1545).
 
 ### Настройка после установки:
-1. Запустите `1CManager_Setup.exe` от имени Администратора.
+1. Запустите `1C-Session-Manager-Setup.exe` от имени Администратора.
 2. Откройте браузер `http://localhost:3000` и перейдите в **Настройки**.
 3. Укажите путь к `rac.exe` (например, `C:\Program Files\1cv8\...\bin\rac.exe`). Кавычки ставить не нужно.
 4. Нажмите "Проверить соединение".

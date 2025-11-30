@@ -12,6 +12,7 @@ const App: React.FC = () => {
   const [clients, setClients] = useState<Client[]>([]);
   const [events, setEvents] = useState<SystemEvent[]>([]);
   const [loading, setLoading] = useState(true);
+  const [serverInfo, setServerInfo] = useState<{ hostname: string; osVersion: string } | null>(null);
 
   // Fetch data function
   const fetchData = async () => {
@@ -37,6 +38,22 @@ const App: React.FC = () => {
     // Poll for updates every 10 seconds
     const interval = setInterval(fetchData, 10000);
     return () => clearInterval(interval);
+  }, []);
+
+  // Fetch server info
+  useEffect(() => {
+    const fetchServerInfo = async () => {
+      try {
+        const response = await fetch('/api/server/info');
+        if (response.ok) {
+          const info = await response.json();
+          setServerInfo(info);
+        }
+      } catch (error) {
+        console.error("Failed to fetch server info:", error);
+      }
+    };
+    fetchServerInfo();
   }, []);
 
   // Handlers for Client Management (API calls)
@@ -128,7 +145,9 @@ const App: React.FC = () => {
       <main className="flex-1 overflow-y-auto h-screen">
         <header className="bg-white h-16 border-b border-slate-200 flex items-center px-8 justify-between sticky top-0 z-10">
           <h2 className="text-sm font-medium text-slate-500">
-            Сервер: <span className="text-slate-800 font-bold">SRV-1C-MAIN</span> (Windows Server 2022)
+            Сервер: <span className="text-slate-800 font-bold">
+              {serverInfo?.hostname || 'Загрузка...'}
+            </span> {serverInfo?.osVersion && `(${serverInfo.osVersion})`}
           </h2>
           <div className="flex items-center gap-4">
              <div className="text-right">

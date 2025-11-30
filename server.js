@@ -2,6 +2,7 @@ import express from 'express';
 import { execFile, exec } from 'child_process';
 import path from 'path';
 import fs from 'fs';
+import os from 'os';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 
@@ -259,6 +260,56 @@ function getServerMetrics() {
                     resolve({ cpu, memory });
                 }
             });
+        });
+    });
+}
+
+/**
+ * Get server system information (hostname, OS version)
+ */
+function getServerInfo() {
+    return new Promise((resolve) => {
+        const cmd = `powershell -Command "$os = Get-CimInstance Win32_OperatingSystem; $hostname = $env:COMPUTERNAME; Write-Output $hostname; Write-Output $os.Caption"`;
+        
+        exec(cmd, { 
+            encoding: 'binary', // Capture raw bytes for iconv
+            timeout: 5000,
+            windowsHide: true,
+            maxBuffer: 1024 * 1024 
+        }, (error, stdout, stderr) => {
+            let hostname = 'Unknown';
+            let osVersion = 'Unknown';
+            
+            if (!error && stdout) {
+                try {
+                    // Decode CP866 to UTF-8 for Russian text
+                    let output = stdout;
+                    if (iconv) {
+                        try {
+                            output = iconv.decode(Buffer.from(stdout, 'binary'), 'cp866');
+                        } catch (e) {
+                            output = stdout.toString();
+                        }
+                    } else {
+                        output = stdout.toString();
+                    }
+                    
+                    const lines = output.trim().split('\n').filter(l => l.trim());
+                    hostname = lines[0]?.trim() || process.env.COMPUTERNAME || os.hostname();
+                    osVersion = lines[1]?.trim() || 'Unknown';
+                } catch (e) {
+                    console.error('Error parsing server info:', e);
+                    // Fallback to Node.js os module
+                    hostname = os.hostname();
+                    osVersion = os.type() + ' ' + os.release();
+                }
+            } else {
+                // Fallback to Node.js os module
+                hostname = os.hostname();
+                osVersion = os.type() + ' ' + os.release();
+            }
+            
+            resolve({ hostname, osVersion });
         });
     });
 }
@@ -626,6 +677,16 @@ app.get('/api/dashboard/warnings', (req, res) => {
     } catch (error) {
         console.error('Error getting warnings:', error);
         res.status(500).json({ error: 'Failed to get warnings' });
+    }
+});
+
+app.get('/api/server/info', async (req, res) => {
+    try {
+        const serverInfo = await getServerInfo();
+        res.json(serverInfo);
+    } catch (error) {
+        console.error('Error getting server info:', error);
+        res.status(500).json({ error: 'Failed to get server info' });
     }
 });
 

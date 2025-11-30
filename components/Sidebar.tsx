@@ -28,7 +28,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, onTabChange }) => {
           <Database size={24} className="text-white" />
         </div>
         <div>
-          <h1 className="font-bold text-lg leading-tight">1C Manager</h1>
+          <h1 className="font-bold text-lg leading-tight">1C Session Manager</h1>
           <p className="text-xs text-slate-400">Enterprise Edition</p>
         </div>
       </div>
