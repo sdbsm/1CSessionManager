@@ -1,0 +1,6 @@
+@_1CSessionManager.Control_HostAddress = http://localhost:5095
+
+GET {{_1CSessionManager.Control_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

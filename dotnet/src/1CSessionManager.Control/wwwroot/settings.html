@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Настройки</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 40px; }
+    .row { display: flex; gap: 16px; flex-wrap: wrap; }
+    .card { border: 1px solid #e5e7eb; border-radius: 12px; padding: 16px; max-width: 880px; margin-bottom: 16px; }
+    label { display:block; margin-top: 10px; font-size: 13px; color:#374151; }
+    input, select { width: 100%; padding: 8px; border: 1px solid #d1d5db; border-radius: 8px; }
+    button { padding: 10px 14px; border: 0; border-radius: 10px; background:#2563eb; color:#fff; cursor:pointer; }
+    button.secondary { background:#6b7280; }
+    code { background:#f3f4f6; padding: 2px 6px; border-radius: 6px; }
+    .muted { color:#6b7280; font-size: 13px; }
+    .ok { color: #16a34a; }
+    .err { color: #dc2626; }
+  </style>
+</head>
+<body>
+  <a href="/">&larr; назад</a>
+
+  <h2>Настройки</h2>
+  <p class="muted">Секреты не хранятся в конфигурационных файлах. Пароли задаются здесь и сохраняются в БД в защищённом виде.</p>
+
+  <div class="card">
+    <h3>MSSQL (SQL login)</h3>
+    <p class="muted">Пароль MSSQL хранится в <b>Windows Credential Manager</b> (не в файлах). Установить можно только с localhost.</p>
+    <div id="sqlStatus" class="muted">Загрузка...</div>
+    <div class="row" style="margin-top:10px">
+      <div style="flex:1; min-width: 260px;">
+        <label>SQL user</label>
+        <input id="sqlUser" placeholder="sql_user" />
+      </div>
+      <div style="flex:1; min-width: 260px;">
+        <label>SQL password</label>
+        <input id="sqlPass" type="password" placeholder="••••••••" />
+      </div>
+    </div>
+    <div style="margin-top: 12px" class="row">
+      <button onclick="saveSqlLogin()">Сохранить SQL login</button>
+      <button class="secondary" onclick="loadSqlStatus()">Обновить статус</button>
+    </div>
+    <div id="sqlMsg" class="muted"></div>
+  </div>
+
+  <div class="card">
+    <h3>API Key (защита Control API)</h3>
+    <p class="muted">Заголовок для запросов: <code>X-Api-Key</code>. Если ключ ещё не задан — его можно установить только с localhost.</p>
+    <label>Текущий API key</label>
+    <div id="apiKeyStatus" class="muted">Загрузка...</div>
+    <label>Новый API key (минимум 16 символов)</label>
+    <input id="apiKeyInput" type="password" placeholder="Введите новый ключ" />
+    <div style="margin-top: 10px" class="row">
+      <button onclick="setApiKey()">Сохранить API key</button>
+      <button class="secondary" onclick="loadApiKeyStatus()">Обновить статус</button>
+    </div>
+    <div id="apiKeyMsg" class="muted"></div>
+  </div>
+
+  <div class="card">
+    <h3>Настройки агента</h3>
+    <label>Выберите агент</label>
+    <select id="agentSelect" onchange="loadAgentSettings()"></select>
+    <div id="agentMsg" class="muted"></div>
+
+    <div style="margin-top: 10px" class="row">
+      <div style="flex:1; min-width: 260px;">
+        <label>RAC path</label>
+        <input id="racPath" placeholder="C:\\Program Files\\1cv8\\...\\rac.exe" />
+      </div>
+      <div style="flex:1; min-width: 260px;">
+        <label>RAS host</label>
+        <input id="rasHost" placeholder="localhost:1545" />
+      </div>
+    </div>
+
+    <div style="margin-top: 10px" class="row">
+      <div style="flex:1; min-width: 260px;">
+        <label>Cluster user</label>
+        <input id="clusterUser" placeholder="(опционально)" />
+      </div>
+      <div style="flex:1; min-width: 260px;">
+        <label>Cluster password (не показывается; ввод = перезапись)</label>
+        <input id="clusterPass" type="password" placeholder="Оставьте пустым чтобы не менять" />
+        <div id="clusterPassSet" class="muted"></div>
+      </div>
+    </div>
+
+    <div style="margin-top: 10px" class="row">
+      <div style="flex:1; min-width: 260px;">
+        <label>Poll interval (сек)</label>
+        <input id="pollInterval" type="number" min="5" max="3600" />
+      </div>
+      <div style="flex:1; min-width: 260px;">
+        <label>Kill mode</label>
+        <select id="killMode">
+          <option value="true">Включен</option>
+          <option value="false">Выключен</option>
+        </select>
+      </div>
+      <div style="flex:1; min-width: 260px;">
+        <label>Agent enabled</label>
+        <select id="agentEnabled">
+          <option value="true">Включен</option>
+          <option value="false">Выключен</option>
+        </select>
+      </div>
+    </div>
+
+    <div style="margin-top: 12px" class="row">
+      <button onclick="saveAgentSettings()">Сохранить настройки агента</button>
+      <button class="secondary" onclick="loadAgentSettings()">Обновить</button>
+    </div>
+  </div>
+
+<script>
+  function apiKeyHeader() {
+    const k = localStorage.getItem("x-api-key");
+    return k ? { "X-Api-Key": k } : {};
+  }
+
+  async function loadSqlStatus() {
+    const el = document.getElementById("sqlStatus");
+    el.textContent = "Загрузка...";
+    const res = await fetch("/api/setup/sql/status");
+    const data = await res.json();
+    el.textContent = data.isSet ? "SQL login: установлен" : "SQL login: не установлен";
+  }
+
+  async function saveSqlLogin() {
+    const msg = document.getElementById("sqlMsg");
+    msg.textContent = "";
+    const userId = document.getElementById("sqlUser").value;
+    const password = document.getElementById("sqlPass").value;
+
+    const res = await fetch("/api/setup/sql", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId, password })
+    });
+
+    if (res.ok) {
+      msg.textContent = "OK: SQL login сохранён. Если API/агент уже запущены — им может понадобиться 10–20 секунд или перезапуск.";
+      msg.className = "muted ok";
+      document.getElementById("sqlPass").value = "";
+      await loadSqlStatus();
+    } else {
+      const t = await res.text();
+      msg.textContent = "Ошибка: " + t;
+      msg.className = "muted err";
+    }
+  }
+
+  async function loadApiKeyStatus() {
+    const el = document.getElementById("apiKeyStatus");
+    el.textContent = "Загрузка...";
+    const res = await fetch("/api/admin/apikey/status");
+    const data = await res.json();
+    el.textContent = data.isSet ? "Установлен (не показывается)" : "Не установлен";
+  }
+
+  async function setApiKey() {
+    const msg = document.getElementById("apiKeyMsg");
+    msg.textContent = "";
+    const apiKey = document.getElementById("apiKeyInput").value;
+
+    const res = await fetch("/api/admin/apikey", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...apiKeyHeader() },
+      body: JSON.stringify({ apiKey })
+    });
+
+    if (res.ok) {
+      localStorage.setItem("x-api-key", apiKey);
+      msg.textContent = "OK: ключ сохранён (и записан в localStorage для последующих запросов).";
+      msg.className = "muted ok";
+      await loadApiKeyStatus();
+    } else {
+      const t = await res.text();
+      msg.textContent = "Ошибка: " + t;
+      msg.className = "muted err";
+    }
+  }
+
+  async function loadAgents() {
+    const sel = document.getElementById("agentSelect");
+    sel.innerHTML = "";
+    const res = await fetch("/api/agents", { headers: apiKeyHeader() });
+    const agents = await res.json();
+    for (const a of agents) {
+      const opt = document.createElement("option");
+      opt.value = a.id;
+      opt.textContent = `${a.name} (${a.hostname})`;
+      sel.appendChild(opt);
+    }
+    if (agents.length > 0) await loadAgentSettings();
+  }
+
+  async function loadAgentSettings() {
+    const agentId = document.getElementById("agentSelect").value;
+    if (!agentId) return;
+    const msg = document.getElementById("agentMsg");
+    msg.textContent = "Загрузка...";
+    const res = await fetch(`/api/agent/settings?agentId=${encodeURIComponent(agentId)}`, { headers: apiKeyHeader() });
+    if (!res.ok) { msg.textContent = "Ошибка загрузки"; msg.className="muted err"; return; }
+    const s = await res.json();
+
+    document.getElementById("racPath").value = s.racPath || "";
+    document.getElementById("rasHost").value = s.rasHost || "";
+    document.getElementById("clusterUser").value = s.clusterUser || "";
+    document.getElementById("pollInterval").value = s.pollIntervalSeconds || 30;
+    document.getElementById("killMode").value = String(s.killModeEnabled);
+    document.getElementById("agentEnabled").value = String(s.enabled);
+    document.getElementById("clusterPass").value = "";
+    document.getElementById("clusterPassSet").textContent = s.clusterPassIsSet ? "Пароль задан" : "Пароль не задан";
+
+    msg.textContent = "";
+    msg.className="muted";
+  }
+
+  async function saveAgentSettings() {
+    const agentId = document.getElementById("agentSelect").value;
+    const req = {
+      enabled: document.getElementById("agentEnabled").value === "true",
+      racPath: document.getElementById("racPath").value,
+      rasHost: document.getElementById("rasHost").value,
+      clusterUser: document.getElementById("clusterUser").value,
+      clusterPass: document.getElementById("clusterPass").value,
+      pollIntervalSeconds: parseInt(document.getElementById("pollInterval").value, 10),
+      killModeEnabled: document.getElementById("killMode").value === "true"
+    };
+
+    // Don't send empty password (means "keep as-is")
+    if (!req.clusterPass) delete req.clusterPass;
+
+    const msg = document.getElementById("agentMsg");
+    msg.textContent = "Сохранение...";
+    msg.className="muted";
+
+    const res = await fetch(`/api/agent/settings?agentId=${encodeURIComponent(agentId)}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", ...apiKeyHeader() },
+      body: JSON.stringify(req)
+    });
+    if (res.ok) {
+      msg.textContent = "OK: сохранено.";
+      msg.className="muted ok";
+      await loadAgentSettings();
+    } else {
+      const t = await res.text();
+      msg.textContent = "Ошибка: " + t;
+      msg.className="muted err";
+    }
+  }
+
+  loadApiKeyStatus();
+  loadSqlStatus();
+  loadAgents();
+</script>
+</body>
+</html>
+
+

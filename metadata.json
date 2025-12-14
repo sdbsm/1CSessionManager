@@ -1,5 +1,0 @@
-{
-  "name": "1C Session Manager",
-  "description": "Enterprise-grade dashboard for managing 1C:Enterprise sessions, monitoring limits per client, and generating usage reports via Gemini AI.",
-  "requestFramePermissions": []
-}

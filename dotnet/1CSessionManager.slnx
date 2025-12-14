@@ -1,0 +1,7 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/1CSessionManager.Agent/1CSessionManager.Agent.csproj" />
+    <Project Path="src/1CSessionManager.Control/1CSessionManager.Control.csproj" />
+    <Project Path="src/1CSessionManager.Shared/1CSessionManager.Shared.csproj" />
+  </Folder>
+</Solution>
