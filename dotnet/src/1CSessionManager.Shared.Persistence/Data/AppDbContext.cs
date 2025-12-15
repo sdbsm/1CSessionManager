@@ -12,6 +12,8 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
     public DbSet<AgentMetricBucket> AgentMetricBuckets => Set<AgentMetricBucket>();
     public DbSet<ClientMetricBucket> ClientMetricBuckets => Set<ClientMetricBucket>();
     public DbSet<AppSecret> AppSecrets => Set<AppSecret>();
+    public DbSet<AgentCommand> AgentCommands => Set<AgentCommand>();
+    public DbSet<AgentPublication> AgentPublications => Set<AgentPublication>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -118,6 +120,26 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             e.Property(x => x.Key).HasMaxLength(128);
             e.Property(x => x.ProtectedValueBase64).HasMaxLength(4096);
             e.HasIndex(x => x.UpdatedAtUtc);
+        });
+
+        // AgentCommand
+        modelBuilder.Entity<AgentCommand>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.Property(x => x.CommandType).HasMaxLength(64);
+            e.Property(x => x.Status).HasMaxLength(32);
+            e.HasIndex(x => new { x.AgentId, x.Status });
+        });
+
+        // AgentPublication
+        modelBuilder.Entity<AgentPublication>(e =>
+        {
+            e.HasKey(x => x.Id);
+            e.HasIndex(x => new { x.AgentId, x.SiteName, x.AppPath }).IsUnique();
+            e.HasOne(x => x.Agent)
+                .WithMany(x => x.Publications)
+                .HasForeignKey(x => x.AgentId)
+                .OnDelete(DeleteBehavior.Cascade);
         });
     }
 }

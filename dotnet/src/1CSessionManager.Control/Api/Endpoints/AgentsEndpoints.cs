@@ -15,7 +15,9 @@ public static class AgentsEndpoints
         endpoints.MapGet("/api/agent/settings", async (Guid agentId, IDbContextFactory<AppDbContext> dbFactory, CancellationToken ct) =>
         {
             await using var db = await dbFactory.CreateDbContextAsync(ct);
-            var agent = await db.Agents.FirstOrDefaultAsync(a => a.Id == agentId, ct);
+            var agent = await db.Agents
+                .Include(a => a.Publications)
+                .FirstOrDefaultAsync(a => a.Id == agentId, ct);
             if (agent is null) return Results.NotFound();
 
             return Results.Ok(new AgentSettingsResponse(
@@ -26,7 +28,13 @@ public static class AgentsEndpoints
                 ClusterUser: agent.ClusterUser,
                 ClusterPassIsSet: !string.IsNullOrWhiteSpace(agent.ClusterPassProtected),
                 KillModeEnabled: agent.KillModeEnabled,
-                PollIntervalSeconds: agent.PollIntervalSeconds
+                PollIntervalSeconds: agent.PollIntervalSeconds,
+                DefaultOneCVersion: agent.DefaultOneCVersion,
+                InstalledVersionsJson: agent.InstalledVersionsJson,
+                Publications: agent.Publications.OrderBy(p => p.SiteName).ThenBy(p => p.AppPath)
+                    .Select(p => new AgentPublicationDto(
+                        p.Id, p.SiteName, p.AppPath, p.PhysicalPath, p.Version, p.LastDetectedAtUtc))
+                    .ToList()
             ));
         });
 
@@ -47,6 +55,7 @@ public static class AgentsEndpoints
             if (req.ClusterUser is not null) agent.ClusterUser = req.ClusterUser.Trim();
             if (req.KillModeEnabled is not null) agent.KillModeEnabled = req.KillModeEnabled.Value;
             if (req.PollIntervalSeconds is not null) agent.PollIntervalSeconds = Math.Clamp(req.PollIntervalSeconds.Value, 5, 3600);
+            if (req.DefaultOneCVersion is not null) agent.DefaultOneCVersion = req.DefaultOneCVersion;
 
             // Password rule:
             // - null => don't change
@@ -82,6 +91,30 @@ public static class AgentsEndpoints
             return Results.Ok(agents);
         });
 
+        // Send commands
+        endpoints.MapPost("/api/agents/{agentId}/commands", async (
+            Guid agentId,
+            AgentCommandRequest req,
+            IDbContextFactory<AppDbContext> dbFactory,
+            CancellationToken ct) =>
+        {
+            await using var db = await dbFactory.CreateDbContextAsync(ct);
+            
+            var cmd = new AgentCommand
+            {
+                AgentId = agentId,
+                CommandType = req.Type,
+                PayloadJson = req.PayloadJson,
+                Status = "Pending",
+                CreatedAtUtc = DateTime.UtcNow
+            };
+            
+            db.AgentCommands.Add(cmd);
+            await db.SaveChangesAsync(ct);
+            
+            return Results.Ok(new { commandId = cmd.Id });
+        });
+
         // Default-agent fallback for UI requests that don't specify agentId (backward compatible)
         endpoints.MapGet("/api/_internal/default-agent", async (IDbContextFactory<AppDbContext> dbFactory, CancellationToken ct) =>
         {
@@ -103,7 +136,10 @@ public static class AgentsEndpoints
         string? ClusterUser,
         bool ClusterPassIsSet,
         bool KillModeEnabled,
-        int PollIntervalSeconds);
+        int PollIntervalSeconds,
+        string? DefaultOneCVersion,
+        string? InstalledVersionsJson,
+        List<AgentPublicationDto> Publications);
 
     internal sealed record AgentSettingsUpdateRequest(
         bool? Enabled,
@@ -112,5 +148,16 @@ public static class AgentsEndpoints
         string? ClusterUser,
         string? ClusterPass,
         bool? KillModeEnabled,
-        int? PollIntervalSeconds);
+        int? PollIntervalSeconds,
+        string? DefaultOneCVersion);
+        
+    internal sealed record AgentCommandRequest(string Type, string? PayloadJson);
+        
+    internal sealed record AgentPublicationDto(
+        Guid Id,
+        string SiteName,
+        string AppPath,
+        string PhysicalPath,
+        string? Version,
+        DateTime LastDetectedAtUtc);
 }

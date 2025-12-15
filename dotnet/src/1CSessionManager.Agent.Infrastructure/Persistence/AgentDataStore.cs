@@ -73,7 +73,16 @@ public sealed class AgentDataStore(IDbContextFactory<AppDbContext> dbFactory) : 
         await db.SaveChangesAsync(ct);
     }
 
-    public async Task WriteEventAsync(Guid agentId, EventLevel level, string message, CancellationToken ct)
+    public async Task WriteEventAsync(
+        Guid agentId, 
+        EventLevel level, 
+        string message, 
+        CancellationToken ct,
+        Guid? clientId = null,
+        string? clientName = null,
+        string? databaseName = null,
+        string? sessionId = null,
+        string? userName = null)
     {
         await using var db = await dbFactory.CreateDbContextAsync(ct);
         db.Events.Add(new SystemEvent
@@ -81,7 +90,12 @@ public sealed class AgentDataStore(IDbContextFactory<AppDbContext> dbFactory) : 
             AgentId = agentId,
             TimestampUtc = DateTime.UtcNow,
             Level = level,
-            Message = message
+            Message = message,
+            ClientId = clientId,
+            ClientName = clientName,
+            DatabaseName = databaseName,
+            SessionId = sessionId,
+            UserName = userName
         });
         await db.SaveChangesAsync(ct);
     }
@@ -172,5 +186,102 @@ public sealed class AgentDataStore(IDbContextFactory<AppDbContext> dbFactory) : 
         }
 
         await db.SaveChangesAsync(ct);
+    }
+
+    public async Task<AgentCommand?> GetNextPendingCommandAsync(Guid agentId, CancellationToken ct)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        var cmd = await db.AgentCommands
+            .Where(x => x.AgentId == agentId && x.Status == "Pending")
+            .OrderBy(x => x.CreatedAtUtc)
+            .FirstOrDefaultAsync(ct);
+        return cmd;
+    }
+
+    public async Task UpdateCommandStatusAsync(Guid commandId, string status, string? errorMessage, CancellationToken ct)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        var cmd = await db.AgentCommands.FirstOrDefaultAsync(x => x.Id == commandId, ct);
+        if (cmd != null)
+        {
+            cmd.Status = status;
+            cmd.ErrorMessage = errorMessage;
+            cmd.ProcessedAtUtc = DateTime.UtcNow;
+            await db.SaveChangesAsync(ct);
+        }
+    }
+
+    public async Task UpdateAgentMetadataAsync(Guid agentId, List<string> installedVersions, List<OneCPublication> publications, CancellationToken ct)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        var agent = await db.Agents.Include(a => a.Publications).FirstOrDefaultAsync(a => a.Id == agentId, ct);
+        if (agent is null) return;
+
+        // 1. Update installed versions
+        var newJson = JsonSerializer.Serialize(installedVersions);
+        if (agent.InstalledVersionsJson != newJson)
+        {
+            agent.InstalledVersionsJson = newJson;
+            agent.LastSeenAtUtc = DateTime.UtcNow;
+        }
+
+        // 2. Update publications
+        // We sync by SiteName+AppPath
+        var now = DateTime.UtcNow;
+        var existing = agent.Publications.ToList(); // Load into memory
+        
+        var touchedIds = new HashSet<Guid>();
+
+        foreach (var p in publications)
+        {
+            var match = existing.FirstOrDefault(x => 
+                x.SiteName.Equals(p.SiteName, StringComparison.OrdinalIgnoreCase) && 
+                x.AppPath.Equals(p.Path, StringComparison.OrdinalIgnoreCase));
+
+            if (match == null)
+            {
+                match = new AgentPublication
+                {
+                    AgentId = agentId,
+                    SiteName = p.SiteName,
+                    AppPath = p.Path
+                };
+                db.AgentPublications.Add(match);
+            }
+
+            match.PhysicalPath = p.PhysicalPath;
+            match.Version = string.IsNullOrWhiteSpace(p.CurrentVersionBinPath) 
+                ? null 
+                : ExtractVersionFromBinPath(p.CurrentVersionBinPath);
+            match.LastDetectedAtUtc = now;
+            
+            touchedIds.Add(match.Id);
+        }
+
+        // Optional: Remove stale publications (not detected anymore)?
+        // For safety, let's just leave them but maybe mark detected time. 
+        // Or if we are sure, delete them. Given user asked for "scan", let's remove missing ones to keep list clean.
+        foreach (var ex in existing)
+        {
+            // If it was already persisted (Id != empty) and not in current batch
+            if (ex.Id != Guid.Empty && !touchedIds.Contains(ex.Id))
+            {
+                db.AgentPublications.Remove(ex);
+            }
+        }
+
+        await db.SaveChangesAsync(ct);
+    }
+
+    private static string? ExtractVersionFromBinPath(string binPath)
+    {
+        // binPath is typically .../8.3.24.1342/bin
+        // or .../8.3.24.1342
+        var dir = new DirectoryInfo(binPath);
+        if (dir.Name.Equals("bin", StringComparison.OrdinalIgnoreCase))
+        {
+            return dir.Parent?.Name;
+        }
+        return dir.Name;
     }
 }

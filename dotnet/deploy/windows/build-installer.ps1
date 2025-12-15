@@ -3,34 +3,28 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$PSScriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Definition
 
-# 1. Publish binaries
-Write-Host "Running publish..."
+# 1. Publish artifacts
+Write-Host "Publishing artifacts..."
 & "$PSScriptRoot\publish.ps1" -Configuration $Configuration
 
-# 2. Find Inno Setup
+# 2. Find Inno Setup Compiler
 $iscc = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe"
-if (-not (Test-Path $iscc)) {
-    $iscc = "C:\Program Files\Inno Setup 6\ISCC.exe"
-}
-if (-not (Test-Path $iscc)) {
-    throw "Inno Setup Compiler (ISCC.exe) not found. Please install Inno Setup 6."
+if (!(Test-Path $iscc)) {
+    throw "Inno Setup Compiler (ISCC.exe) not found at $iscc. Please install Inno Setup 6."
 }
 
-# 3. Build Installer
-$issPath = Join-Path $PSScriptRoot "setup.iss"
-Write-Host "Compiling installer: $issPath"
+# 3. Compile Installer
+$issFile = Join-Path $PSScriptRoot "setup.iss"
+Write-Host "Compiling Inno Setup script: $issFile"
 
-& $iscc $issPath
+& $iscc $issFile
 
-if ($LASTEXITCODE -ne 0) {
-    throw "Inno Setup compilation failed."
-}
-
-$distDir = Join-Path $PSScriptRoot "..\..\dist"
-if (Test-Path $distDir) {
-    $distDir = Resolve-Path $distDir
-    Write-Host "Installer created successfully in: $distDir"
+if ($LASTEXITCODE -eq 0) {
+    Write-Host "Installer built successfully!" -ForegroundColor Green
+    $distDir = Resolve-Path (Join-Path $PSScriptRoot "..\..\dist")
+    Write-Host "Installer is located at: $distDir"
 } else {
-    Write-Host "Installer created, but output dir not found at expected location."
+    Write-Error "Inno Setup compilation failed with exit code $LASTEXITCODE"
 }

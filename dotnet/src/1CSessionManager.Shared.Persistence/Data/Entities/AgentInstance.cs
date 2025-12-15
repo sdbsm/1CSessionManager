@@ -27,6 +27,12 @@ public sealed class AgentInstance
 
     public bool Enabled { get; set; }
     public ClusterStatus LastKnownClusterStatus { get; set; }
+
+    public string? DefaultOneCVersion { get; set; }
+
+    public string? InstalledVersionsJson { get; set; }
+
+    public List<AgentPublication> Publications { get; set; } = new();
 }
 
 

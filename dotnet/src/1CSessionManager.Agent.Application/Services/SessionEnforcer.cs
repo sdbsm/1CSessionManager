@@ -41,7 +41,20 @@ public sealed class SessionEnforcer(IRacSessionClient rac, IAgentDataStore store
 
             if (client.Status == ClientStatus.Blocked)
             {
-                await KillSessionsAsync(agent, clusterId, client, list, reason: "Доступ заблокирован администратором.", ct);
+                if (agent.KillModeEnabled)
+                {
+                    await KillSessionsAsync(agent, clusterId, client, list, reason: "Доступ заблокирован администратором.", ct);
+                }
+                else
+                {
+                    await store.WriteEventAsync(
+                        agent.Id, 
+                        EventLevel.Warning, 
+                        $"Клиент {client.Name} заблокирован, но автоматическое завершение сеансов (Kill Mode) отключено.", 
+                        ct,
+                        clientId: client.Id,
+                        clientName: client.Name);
+                }
                 continue;
             }
 
@@ -49,12 +62,26 @@ public sealed class SessionEnforcer(IRacSessionClient rac, IAgentDataStore store
             if (client.MaxSessions > 0 && active > client.MaxSessions)
             {
                 var excess = active - client.MaxSessions;
-                var toKill = list
-                    .OrderByDescending(s => s.StartedAtUtc)
-                    .Take(excess)
-                    .ToList();
+                
+                if (agent.KillModeEnabled)
+                {
+                    var toKill = list
+                        .OrderByDescending(s => s.StartedAtUtc)
+                        .Take(excess)
+                        .ToList();
 
-                await KillSessionsAsync(agent, clusterId, client, toKill, reason: "Лимит сеансов превышен. Обратитесь к администратору.", ct);
+                    await KillSessionsAsync(agent, clusterId, client, toKill, reason: "Лимит сеансов превышен. Обратитесь к администратору.", ct);
+                }
+                else
+                {
+                    await store.WriteEventAsync(
+                        agent.Id,
+                        EventLevel.Warning,
+                        $"Клиент {client.Name} превысил лимит сеансов ({active} / {client.MaxSessions}), но автоматическое завершение (Kill Mode) отключено.",
+                        ct,
+                        clientId: client.Id,
+                        clientName: client.Name);
+                }
             }
         }
     }
@@ -75,11 +102,16 @@ public sealed class SessionEnforcer(IRacSessionClient rac, IAgentDataStore store
             {
                 await store.WriteEventAsync(
                     agent.Id,
-                    ok ? EventLevel.Info : EventLevel.Warning,
+                    ok ? EventLevel.Critical : EventLevel.Warning,
                     ok
-                        ? $"Сеанс завершен. Клиент: {client.Name}, База: {s.DatabaseName ?? "?"}, Пользователь: {s.UserName ?? "?"}"
+                        ? $"Сеанс завершен (CRITICAL). Причина: {reason} Клиент: {client.Name}, База: {s.DatabaseName ?? "?"}, Пользователь: {s.UserName ?? "?"}"
                         : $"Не удалось завершить сеанс. Клиент: {client.Name}, SessionId: {s.Id}",
-                    ct);
+                    ct,
+                    clientId: client.Id,
+                    clientName: client.Name,
+                    databaseName: s.DatabaseName,
+                    sessionId: s.Id,
+                    userName: s.UserName);
             }
             catch
             {
@@ -88,4 +120,3 @@ public sealed class SessionEnforcer(IRacSessionClient rac, IAgentDataStore store
         }
     }
 }
-

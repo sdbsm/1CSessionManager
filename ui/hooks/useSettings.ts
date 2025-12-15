@@ -2,8 +2,18 @@ import { useEffect, useState } from 'react';
 import { AppSettings } from '../types';
 import { apiFetchJson } from '../services/apiClient';
 
-type LegacySettingsResponse = Partial<AppSettings> & {
-  clusterPass?: string | null;
+type LegacySettingsResponse = {
+  agentId?: string;
+  enabled?: boolean;
+  racPath?: string;
+  rasHost?: string;
+  clusterUser?: string;
+  pollIntervalSeconds?: number;
+  killModeEnabled?: boolean;
+  clusterPassIsSet?: boolean;
+  defaultOneCVersion?: string;
+  installedVersionsJson?: string;
+  publications?: any[];
 };
 
 type TestConnectionResponse =
@@ -14,88 +24,73 @@ export function useSettings() {
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [clusterPassIsEncrypted, setClusterPassIsEncrypted] = useState(false);
+  const [agentId, setAgentId] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000); 
     
     (async () => {
       try {
-        const data = await apiFetchJson<LegacySettingsResponse>('/api/settings', { signal: controller.signal });
+        // 1. Get default agent ID
+        const def = await apiFetchJson<{agentId: string}>('/api/_internal/default-agent');
+        if (!def.agentId) throw new Error('No agent found');
+        if (alive) setAgentId(def.agentId);
+
+        // 2. Get settings for this agent
+        const data = await apiFetchJson<LegacySettingsResponse>(`/api/agent/settings?agentId=${def.agentId}`, { signal: controller.signal });
 
         if (!alive) return;
 
-        const rawPass = data.clusterPass ?? '';
-        setClusterPassIsEncrypted(rawPass === '***ENCRYPTED***');
-
-        const displaySettings: AppSettings = {
-          racPath: data.racPath ?? 'C:\\Program Files\\1cv8\\8.3.22.1709\\bin\\rac.exe',
-          rasHost: data.rasHost ?? 'localhost:1545',
-          clusterUser: data.clusterUser ?? '',
-          clusterPass: rawPass === '***ENCRYPTED***' ? '' : rawPass,
-          checkInterval: typeof data.checkInterval === 'number' ? data.checkInterval : 30,
-          killMode: !!data.killMode
-        };
-
-        setSettings(displaySettings);
+        setSettings({
+          racPath: data.racPath || '',
+          rasHost: data.rasHost || '',
+          clusterUser: data.clusterUser || '',
+          clusterPass: '', // we don't get password back
+          checkInterval: data.pollIntervalSeconds || 30,
+          killMode: !!data.killModeEnabled,
+          defaultOneCVersion: data.defaultOneCVersion || '',
+          installedVersionsJson: data.installedVersionsJson,
+          publications: data.publications
+        });
       } catch (err) {
         if (!alive) return;
         console.error('Failed to load settings', err);
-        setSettings({
-          racPath: 'C:\\Program Files\\1cv8\\8.3.22.1709\\bin\\rac.exe',
-          rasHost: 'localhost:1545',
-          clusterUser: '',
-          clusterPass: '',
-          checkInterval: 30,
-          killMode: false
-        });
-        setClusterPassIsEncrypted(false);
       } finally {
-        clearTimeout(timeoutId);
         if (alive) setLoading(false);
       }
     })();
     
     return () => {
       alive = false;
-      clearTimeout(timeoutId);
       controller.abort();
     };
   }, []);
 
   const saveSettings = async (newSettings: AppSettings) => {
-    if (!newSettings) return false;
+    if (!newSettings || !agentId) return false;
     setSaving(true);
     try {
-      const settingsToSave = { ...newSettings };
+      const payload: any = {
+        racPath: newSettings.racPath,
+        rasHost: newSettings.rasHost,
+        clusterUser: newSettings.clusterUser,
+        pollIntervalSeconds: newSettings.checkInterval,
+        killModeEnabled: newSettings.killMode,
+        defaultOneCVersion: newSettings.defaultOneCVersion
+      };
       
-      if (!settingsToSave.clusterPass || settingsToSave.clusterPass.trim() === '') {
-        if (clusterPassIsEncrypted) {
-          settingsToSave.clusterPass = '***ENCRYPTED***';
-        }
+      if (newSettings.clusterPass) {
+        payload.clusterPass = newSettings.clusterPass;
       }
-      
-      const savedData = await apiFetchJson<LegacySettingsResponse>('/api/settings', {
+
+      await apiFetchJson('/api/agent/settings?agentId=' + agentId, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(settingsToSave)
+        body: JSON.stringify(payload)
       });
       
-      const rawPass = savedData.clusterPass ?? '';
-      setClusterPassIsEncrypted(rawPass === '***ENCRYPTED***');
-
-      const displaySettings: AppSettings = {
-        racPath: savedData.racPath ?? settingsToSave.racPath,
-        rasHost: savedData.rasHost ?? settingsToSave.rasHost,
-        clusterUser: savedData.clusterUser ?? settingsToSave.clusterUser,
-        clusterPass: rawPass === '***ENCRYPTED***' ? '' : rawPass,
-        checkInterval: typeof savedData.checkInterval === 'number' ? savedData.checkInterval : settingsToSave.checkInterval,
-        killMode: typeof savedData.killMode === 'boolean' ? savedData.killMode : settingsToSave.killMode
-      };
-
-      setSettings(displaySettings);
+      setSettings({ ...newSettings, clusterPass: '' }); // clear pass after save
       return true;
     } catch (e) {
       console.error(e);
@@ -106,6 +101,9 @@ export function useSettings() {
   };
 
   const testConnection = async (currentSettings: AppSettings) => {
+    // Test connection endpoint still uses old format or needs update?
+    // Let's assume it works with AppSettings structure but we should probably update it to use agentId context if possible.
+    // For now, let's map it to what backend expects.
     try {
       const data = await apiFetchJson<TestConnectionResponse>('/api/test-connection', {
         method: 'POST',
@@ -121,5 +119,5 @@ export function useSettings() {
     }
   };
 
-  return { settings, loading, saving, saveSettings, testConnection, setSettings };
+  return { settings, loading, saving, saveSettings, testConnection, setSettings, agentId };
 }

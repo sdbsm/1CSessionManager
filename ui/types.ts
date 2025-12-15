@@ -53,4 +53,16 @@ export interface AppSettings {
   clusterPass: string;
   checkInterval: number;
   killMode: boolean;
+  defaultOneCVersion?: string;
+  installedVersionsJson?: string;
+  publications?: AgentPublicationDto[];
+}
+
+export interface AgentPublicationDto {
+  id: string;
+  siteName: string;
+  appPath: string;
+  physicalPath: string;
+  version: string | null;
+  lastDetectedAtUtc: string;
 }

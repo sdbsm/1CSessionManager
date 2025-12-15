@@ -2,6 +2,7 @@ using SessionManager.Agent;
 using SessionManager.Agent.Monitoring;
 using SessionManager.Agent.Persistence;
 using SessionManager.Agent.Services;
+using SessionManager.Agent.Infrastructure.Services;
 using SessionManager.Agent.Ports;
 using System.Text;
 using Microsoft.Extensions.Hosting.WindowsServices;
@@ -43,6 +44,9 @@ builder.Services.AddSingleton<IAgentIdentityProvider, AgentIdentityProvider>();
 builder.Services.AddSingleton<ISystemMetricsCollector, SystemMetricsCollector>();
 builder.Services.AddSingleton<IRacSessionClient, RacSessionClient>();
 builder.Services.AddSingleton<IAgentDataStore, AgentDataStore>();
+builder.Services.AddSingleton<IIisManagementService, IisManagementService>();
+builder.Services.AddSingleton<IWebPublicationService, WebPublicationService>();
+builder.Services.AddSingleton<AgentCommandProcessor>();
 builder.Services.AddSingleton<SessionEnforcer>();
 builder.Services.AddSingleton<AgentMonitorLoop>();
 

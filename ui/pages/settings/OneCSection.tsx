@@ -5,6 +5,8 @@ import { Input } from '../../components/ui/Input';
 import { Button } from '../../components/ui/Button';
 import { AppSettings } from '../../types';
 
+import { Select } from '../../components/ui/Select';
+
 interface OneCSectionProps {
   settings: AppSettings;
   onChange: (field: keyof AppSettings, value: any) => void;
@@ -20,8 +22,11 @@ export const OneCSection: React.FC<OneCSectionProps> = ({
   saving,
   onTest
 }) => {
+  const versions = settings.installedVersionsJson ? JSON.parse(settings.installedVersionsJson) as string[] : [];
+  
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [showAdvanced, setShowAdvanced] = useState(false);
 
   const handleTest = async () => {
     setTesting(true);
@@ -29,6 +34,15 @@ export const OneCSection: React.FC<OneCSectionProps> = ({
     const result = await onTest(settings);
     setTestResult(result);
     setTesting(false);
+  };
+
+  const handleVersionChange = (ver: string) => {
+    onChange('defaultOneCVersion', ver);
+    if (ver) {
+        // Auto-set RAC path based on version
+        const path = `C:\\Program Files\\1cv8\\${ver}\\bin\\rac.exe`;
+        onChange('racPath', path);
+    }
   };
 
   return (
@@ -44,26 +58,66 @@ export const OneCSection: React.FC<OneCSectionProps> = ({
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <Input 
-            label="Хост (RAS)" 
-            value={settings.rasHost} 
-            onChange={e => onChange('rasHost', e.target.value)} 
-            placeholder="localhost:1545"
-        />
-        <Input 
-            label="Интервал проверки (сек)" 
-            type="number"
-            value={settings.checkInterval} 
-            onChange={e => onChange('checkInterval', parseInt(e.target.value))} 
-        />
-        <div className="md:col-span-2">
-            <Input 
-                label="Путь к утилите rac.exe" 
-                value={settings.racPath} 
-                onChange={e => onChange('racPath', e.target.value)} 
-                className="font-mono text-sm"
-            />
+        <div className="md:col-span-2 space-y-4">
+            <div className="p-4 rounded-lg bg-blue-500/5 border border-blue-500/10">
+                <label className="block text-sm font-medium text-slate-300 mb-2">Версия платформы 1С</label>
+                <div className="flex gap-4">
+                    <div className="flex-1">
+                        <Select
+                            value={settings.defaultOneCVersion || ''}
+                            onChange={(e) => handleVersionChange(e.target.value)}
+                            options={[
+                                { value: '', label: '-- Выберите версию (авто-настройка) --' },
+                                ...versions.map(v => ({ value: v, label: v }))
+                            ]}
+                        />
+                    </div>
+                    <div className="w-[200px]">
+                        <Input 
+                            label="" 
+                            value={settings.rasHost} 
+                            onChange={e => onChange('rasHost', e.target.value)} 
+                            placeholder="localhost:1545"
+                            className="bg-transparent"
+                        />
+                    </div>
+                </div>
+                <p className="text-xs text-slate-500 mt-2">
+                    Выбор версии автоматически настроит путь к <code>rac.exe</code>. 
+                    RAS Host по умолчанию: <code>localhost:1545</code>.
+                </p>
+            </div>
         </div>
+
+        <div className="md:col-span-2">
+            <button 
+                type="button" 
+                onClick={() => setShowAdvanced(!showAdvanced)}
+                className="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1"
+            >
+                {showAdvanced ? 'Скрыть расширенные настройки' : 'Показать расширенные настройки (пути, интервалы)'}
+            </button>
+        </div>
+
+        {showAdvanced && (
+            <>
+                <Input 
+                    label="Интервал проверки (сек)" 
+                    type="number"
+                    value={settings.checkInterval} 
+                    onChange={e => onChange('checkInterval', parseInt(e.target.value))} 
+                />
+                <div className="md:col-span-2">
+                    <Input 
+                        label="Путь к утилите rac.exe" 
+                        value={settings.racPath} 
+                        onChange={e => onChange('racPath', e.target.value)} 
+                        className="font-mono text-sm"
+                    />
+                </div>
+            </>
+        )}
+
         <Input 
             label="Администратор кластера" 
             value={settings.clusterUser} 
@@ -72,7 +126,7 @@ export const OneCSection: React.FC<OneCSectionProps> = ({
         />
         <Input 
             label="Пароль администратора" 
-            type="password"
+            type="password" 
             value={settings.clusterPass} 
             onChange={e => onChange('clusterPass', e.target.value)} 
             placeholder="••••••••"

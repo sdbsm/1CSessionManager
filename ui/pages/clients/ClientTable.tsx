@@ -1,20 +1,26 @@
 import React, { useState } from 'react';
 import { ClientRow } from './ClientRow';
 import { Search } from 'lucide-react';
-import { Client } from '../../types';
+import { Client, AgentPublicationDto } from '../../types';
 
 interface ClientTableProps {
   clients: Client[];
   onEdit: (client: Client) => void;
   onDelete: (id: string) => void;
   onRemoveDatabase: (clientId: string, dbName: string) => void;
+  publications?: AgentPublicationDto[];
+  onPublish?: (dbName: string) => void;
+  onEditPublication?: (dbName: string, pub: AgentPublicationDto) => void;
 }
 
 export const ClientTable: React.FC<ClientTableProps> = ({
   clients,
   onEdit,
   onDelete,
-  onRemoveDatabase
+  onRemoveDatabase,
+  publications = [],
+  onPublish,
+  onEditPublication
 }) => {
   const [expandedClientId, setExpandedClientId] = useState<string | null>(null);
 
@@ -54,6 +60,9 @@ export const ClientTable: React.FC<ClientTableProps> = ({
                     onDelete(client.id);
                   }}
                   onRemoveDatabase={onRemoveDatabase}
+                  publications={publications}
+                  onPublish={onPublish}
+                  onEditPublication={onEditPublication}
                 />
               ))
             ) : (

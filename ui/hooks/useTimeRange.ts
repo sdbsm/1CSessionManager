@@ -3,7 +3,7 @@ import { useState, useMemo } from 'react';
 export type TimeRangePreset = '15m' | '1h' | '6h' | '24h' | '7d';
 export type TimeRange = { preset: TimeRangePreset; toUtc: Date; fromUtc: Date };
 
-function computeTimeRange(preset: TimeRangePreset): TimeRange {
+export function computeTimeRange(preset: TimeRangePreset): TimeRange {
   const toUtc = new Date();
   const ms = preset === '15m' ? 15 * 60_000
     : preset === '1h' ? 60 * 60_000

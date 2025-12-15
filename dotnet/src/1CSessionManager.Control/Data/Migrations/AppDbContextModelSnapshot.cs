@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using SessionManager.Shared.Data;
 
@@ -22,6 +23,44 @@ namespace SessionManager.Control.Data.Migrations
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
 
+            modelBuilder.Entity("SessionManager.Shared.Data.Entities.AgentCommand", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("AgentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("CommandType")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<DateTime>("CreatedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("ErrorMessage")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("PayloadJson")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime?>("ProcessedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AgentId", "Status");
+
+                    b.ToTable("AgentCommands");
+                });
+
             modelBuilder.Entity("SessionManager.Shared.Data.Entities.AgentInstance", b =>
                 {
                     b.Property<Guid>("Id")
@@ -39,6 +78,9 @@ namespace SessionManager.Control.Data.Migrations
                     b.Property<DateTime>("CreatedAtUtc")
                         .HasColumnType("datetime2");
 
+                    b.Property<string>("DefaultOneCVersion")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<bool>("Enabled")
                         .HasColumnType("bit");
 
@@ -46,6 +88,9 @@ namespace SessionManager.Control.Data.Migrations
                         .IsRequired()
                         .HasMaxLength(128)
                         .HasColumnType("nvarchar(128)");
+
+                    b.Property<string>("InstalledVersionsJson")
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<bool>("KillModeEnabled")
                         .HasColumnType("bit");
@@ -119,6 +164,45 @@ namespace SessionManager.Control.Data.Migrations
                         .IsUnique();
 
                     b.ToTable("AgentMetricBuckets");
+                });
+
+            modelBuilder.Entity("SessionManager.Shared.Data.Entities.AgentPublication", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<Guid>("AgentId")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<string>("AppPath")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
+                    b.Property<DateTime>("LastDetectedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("PhysicalPath")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("nvarchar(512)");
+
+                    b.Property<string>("SiteName")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("nvarchar(128)");
+
+                    b.Property<string>("Version")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AgentId", "SiteName", "AppPath")
+                        .IsUnique();
+
+                    b.ToTable("AgentPublications");
                 });
 
             modelBuilder.Entity("SessionManager.Shared.Data.Entities.AppSecret", b =>
@@ -307,6 +391,17 @@ namespace SessionManager.Control.Data.Migrations
                     b.Navigation("Agent");
                 });
 
+            modelBuilder.Entity("SessionManager.Shared.Data.Entities.AgentPublication", b =>
+                {
+                    b.HasOne("SessionManager.Shared.Data.Entities.AgentInstance", "Agent")
+                        .WithMany("Publications")
+                        .HasForeignKey("AgentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Agent");
+                });
+
             modelBuilder.Entity("SessionManager.Shared.Data.Entities.Client", b =>
                 {
                     b.HasOne("SessionManager.Shared.Data.Entities.AgentInstance", "Agent")
@@ -365,6 +460,11 @@ namespace SessionManager.Control.Data.Migrations
                         .IsRequired();
 
                     b.Navigation("Agent");
+                });
+
+            modelBuilder.Entity("SessionManager.Shared.Data.Entities.AgentInstance", b =>
+                {
+                    b.Navigation("Publications");
                 });
 
             modelBuilder.Entity("SessionManager.Shared.Data.Entities.Client", b =>

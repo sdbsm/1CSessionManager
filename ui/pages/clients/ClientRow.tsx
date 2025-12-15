@@ -6,9 +6,11 @@ import {
   FileText, 
   Pencil, 
   Trash2, 
-  XCircle 
+  XCircle,
+  Globe,
+  Settings 
 } from 'lucide-react';
-import { Client } from '../../types';
+import { Client, AgentPublicationDto } from '../../types';
 import { Badge } from '../../components/ui/Badge';
 
 interface ClientRowProps {
@@ -18,6 +20,9 @@ interface ClientRowProps {
   onEdit: (e: React.MouseEvent) => void;
   onDelete: (e: React.MouseEvent) => void;
   onRemoveDatabase: (clientId: string, dbName: string) => void;
+  publications?: AgentPublicationDto[];
+  onPublish?: (dbName: string) => void;
+  onEditPublication?: (dbName: string, pub: AgentPublicationDto) => void;
 }
 
 export const ClientRow: React.FC<ClientRowProps> = ({
@@ -26,7 +31,10 @@ export const ClientRow: React.FC<ClientRowProps> = ({
   onToggleExpand,
   onEdit,
   onDelete,
-  onRemoveDatabase
+  onRemoveDatabase,
+  publications = [],
+  onPublish,
+  onEditPublication
 }) => {
   const isUnlimited = client.maxSessions === 0;
   const percentage = !isUnlimited 
@@ -167,33 +175,86 @@ export const ClientRow: React.FC<ClientRowProps> = ({
               </div>
               {client.databases.length > 0 ? (
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-                  {client.databases.map((db, idx) => (
-                    <div key={idx} className="p-4 rounded-lg border shadow-sm hover:shadow-panel transition-shadow bg-slate-950/40 border-white/10">
+                  {client.databases.map((db, idx) => {
+                    // Find pub status
+                    const pub = publications.find(p => 
+                      p.appPath.replace(/^\//, '').toLowerCase() === db.name.toLowerCase()
+                    );
+                    
+                    return (
+                    <div key={idx} className="p-4 rounded-lg border shadow-sm hover:shadow-panel transition-shadow bg-slate-950/40 border-white/10 relative group/db">
                       <div className="flex items-start justify-between mb-2">
                         <div className="flex-1 min-w-0">
-                          <div className="font-medium text-sm truncate text-slate-50" title={db.name}>
+                          <div className="font-medium text-sm truncate text-slate-50 flex items-center gap-2" title={db.name}>
                             {db.name}
                           </div>
+                          
+                          {/* Publication Status */}
+                          {pub ? (
+                            <div className="mt-2 flex flex-col gap-1">
+                                <span className="text-[10px] uppercase font-bold text-emerald-400 flex items-center gap-1">
+                                    <Globe size={10} />
+                                    WEB Опубликована
+                                </span>
+                                <div className="text-[10px] text-slate-400 font-mono truncate" title={pub.physicalPath}>
+                                    {pub.appPath} (v{pub.version})
+                                </div>
+                            </div>
+                          ) : (
+                             <div className="mt-2 text-[10px] text-slate-500 italic">Не опубликована</div>
+                          )}
+
                         </div>
-                        <button
-                          onClick={(e) => {
-                             e.stopPropagation();
-                             onRemoveDatabase(client.id, db.name);
-                          }}
-                          className="ml-2 flex-shrink-0 text-rose-300 hover:text-rose-200"
-                          title="Удалить базу"
-                        >
-                          <XCircle size={14} />
-                        </button>
+                        <div className="flex flex-col gap-1 items-end">
+                            <button
+                              onClick={(e) => {
+                                 e.stopPropagation();
+                                 onRemoveDatabase(client.id, db.name);
+                              }}
+                              className="p-1 text-slate-500 hover:text-rose-400 transition-colors"
+                              title="Отвязать базу"
+                            >
+                              <XCircle size={14} />
+                            </button>
+                            
+                            {/* Publish / Edit Action */}
+                            {pub ? (
+                                onEditPublication && (
+                                    <button
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            onEditPublication(db.name, pub);
+                                        }}
+                                        className="p-1 text-slate-500 hover:text-indigo-300 transition-colors"
+                                        title="Настройки публикации"
+                                    >
+                                        <Settings size={14} />
+                                    </button>
+                                )
+                            ) : (
+                                onPublish && (
+                                    <button
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            onPublish(db.name);
+                                        }}
+                                        className="p-1 text-slate-500 hover:text-emerald-400 transition-colors"
+                                        title="Опубликовать"
+                                    >
+                                        <Globe size={14} />
+                                    </button>
+                                )
+                            )}
+                        </div>
                       </div>
                       <div className="flex items-center justify-between mt-3 pt-3 border-t border-white/10">
-                        <span className="text-xs uppercase font-semibold text-slate-400">Активных сеансов</span>
+                        <span className="text-xs uppercase font-semibold text-slate-400">Сеансы</span>
                         <span className={`text-lg font-bold ${db.activeSessions > 0 ? 'text-indigo-200' : 'text-slate-500'}`}>
                           {db.activeSessions}
                         </span>
                       </div>
                     </div>
-                  ))}
+                  )})}
                 </div>
               ) : (
                 <div className="text-sm italic text-slate-500">Базы данных не привязаны.</div>

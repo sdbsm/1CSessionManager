@@ -67,6 +67,10 @@
 
     <div style="margin-top: 10px" class="row">
       <div style="flex:1; min-width: 260px;">
+        <label>Версия 1С по умолчанию</label>
+        <select id="defaultVersion" onchange="onVersionChange()"></select>
+      </div>
+      <div style="flex:1; min-width: 260px;">
         <label>RAC path</label>
         <input id="racPath" placeholder="C:\\Program Files\\1cv8\\...\\rac.exe" />
       </div>
@@ -114,6 +118,70 @@
       <button class="secondary" onclick="loadAgentSettings()">Обновить</button>
     </div>
   </div>
+
+  <div class="card">
+    <h3>Управление публикациями</h3>
+    <p class="muted">Список опубликованных баз на IIS (обновляется агентом раз в минуту).</p>
+    
+    <div style="margin-bottom: 12px" class="row">
+        <button onclick="showPublishModal()" class="secondary">➕ Новая публикация</button>
+        <button onclick="showMassUpdateModal()" class="secondary">🔄 Массовая смена платформы</button>
+    </div>
+
+    <table width="100%" style="border-collapse: collapse; font-size: 14px;">
+        <thead>
+            <tr style="text-align: left; background: #f9fafb; border-bottom: 1px solid #e5e7eb;">
+                <th style="padding: 8px;">Сайт</th>
+                <th style="padding: 8px;">Путь (App)</th>
+                <th style="padding: 8px;">Физический путь</th>
+                <th style="padding: 8px;">Версия</th>
+                <th style="padding: 8px;">Действия</th>
+            </tr>
+        </thead>
+        <tbody id="pubsTable"></tbody>
+    </table>
+  </div>
+
+  <!-- Modal: Publish -->
+  <dialog id="publishModal" style="border: 1px solid #ccc; border-radius: 8px; padding: 20px; max-width: 500px;">
+    <h3>Новая публикация</h3>
+    <label>Имя публикации (URL path)</label>
+    <input id="pubName" placeholder="buh_demo" />
+    
+    <label>Имя базы в кластере 1С</label>
+    <input id="pubBase" placeholder="buh_demo_db" />
+    
+    <label>Физический путь</label>
+    <input id="pubPath" placeholder="C:\inetpub\wwwroot\buh_demo" />
+    
+    <label>Строка соединения (для webinst)</label>
+    <input id="pubConn" placeholder="Srvr=&quot;localhost&quot;;Ref=&quot;buh_demo_db&quot;;" />
+    
+    <label>Версия платформы</label>
+    <select id="pubVersion"></select>
+
+    <div style="margin-top: 15px; display: flex; gap: 10px;">
+        <button onclick="sendPublish()">Опубликовать</button>
+        <button class="secondary" onclick="document.getElementById('publishModal').close()">Отмена</button>
+    </div>
+  </dialog>
+
+  <!-- Modal: Mass Update -->
+  <dialog id="massUpdateModal" style="border: 1px solid #ccc; border-radius: 8px; padding: 20px; max-width: 500px;">
+    <h3>Массовая смена платформы</h3>
+    <p class="muted">Найдет все публикации на старой версии и переключит на новую.</p>
+    
+    <label>Исходная версия (откуда)</label>
+    <select id="massSource"></select>
+    
+    <label>Целевая версия (куда)</label>
+    <select id="massTarget"></select>
+
+    <div style="margin-top: 15px; display: flex; gap: 10px;">
+        <button onclick="sendMassUpdate()">Запустить обновление</button>
+        <button class="secondary" onclick="document.getElementById('massUpdateModal').close()">Отмена</button>
+    </div>
+  </dialog>
 
 <script>
   function apiKeyHeader() {
@@ -198,6 +266,8 @@
     if (agents.length > 0) await loadAgentSettings();
   }
 
+  let currentAgentData = null;
+
   async function loadAgentSettings() {
     const agentId = document.getElementById("agentSelect").value;
     if (!agentId) return;
@@ -206,6 +276,7 @@
     const res = await fetch(`/api/agent/settings?agentId=${encodeURIComponent(agentId)}`, { headers: apiKeyHeader() });
     if (!res.ok) { msg.textContent = "Ошибка загрузки"; msg.className="muted err"; return; }
     const s = await res.json();
+    currentAgentData = s;
 
     document.getElementById("racPath").value = s.racPath || "";
     document.getElementById("rasHost").value = s.rasHost || "";
@@ -216,8 +287,61 @@
     document.getElementById("clusterPass").value = "";
     document.getElementById("clusterPassSet").textContent = s.clusterPassIsSet ? "Пароль задан" : "Пароль не задан";
 
+    // Versions
+    const versions = s.installedVersionsJson ? JSON.parse(s.installedVersionsJson) : [];
+    fillVersionSelect("defaultVersion", versions, s.defaultOneCVersion);
+    fillVersionSelect("pubVersion", versions, s.defaultOneCVersion);
+    fillVersionSelect("massSource", versions);
+    fillVersionSelect("massTarget", versions, s.defaultOneCVersion);
+
+    // Publications
+    renderPublications(s.publications || []);
+
     msg.textContent = "";
     msg.className="muted";
+  }
+  
+  function fillVersionSelect(id, versions, selected) {
+    const sel = document.getElementById(id);
+    sel.innerHTML = "<option value=''>-- Выберите --</option>";
+    for (const v of versions) {
+        const opt = document.createElement("option");
+        opt.value = v;
+        opt.textContent = v;
+        if (v === selected) opt.selected = true;
+        sel.appendChild(opt);
+    }
+  }
+
+  function onVersionChange() {
+    const ver = document.getElementById("defaultVersion").value;
+    if (ver) {
+        // Auto-suggest rac path
+        const path = `C:\\Program Files\\1cv8\\${ver}\\bin\\rac.exe`;
+        document.getElementById("racPath").value = path;
+    }
+  }
+
+  function renderPublications(pubs) {
+    const tb = document.getElementById("pubsTable");
+    tb.innerHTML = "";
+    for (const p of pubs) {
+        const tr = document.createElement("tr");
+        tr.style.borderBottom = "1px solid #eee";
+        tr.innerHTML = `
+            <td style="padding: 8px;">${p.siteName}</td>
+            <td style="padding: 8px;"><b>${p.appPath}</b></td>
+            <td style="padding: 8px;" class="muted">${p.physicalPath}</td>
+            <td style="padding: 8px;"><code>${p.version || "?"}</code></td>
+            <td style="padding: 8px;">
+                <button class="secondary" style="padding: 4px 8px; font-size: 12px;" onclick="promptUpdateVersion('${p.siteName}', '${p.appPath}', '${p.version}')">Сменить версию</button>
+            </td>
+        `;
+        tb.appendChild(tr);
+    }
+    if (pubs.length === 0) {
+        tb.innerHTML = "<tr><td colspan='5' style="padding:10px; text-align:center" class='muted'>Нет опубликованных баз (или данные еще не синхронизированы)</td></tr>";
+    }
   }
 
   async function saveAgentSettings() {
@@ -229,7 +353,8 @@
       clusterUser: document.getElementById("clusterUser").value,
       clusterPass: document.getElementById("clusterPass").value,
       pollIntervalSeconds: parseInt(document.getElementById("pollInterval").value, 10),
-      killModeEnabled: document.getElementById("killMode").value === "true"
+      killModeEnabled: document.getElementById("killMode").value === "true",
+      defaultOneCVersion: document.getElementById("defaultVersion").value
     };
 
     // Don't send empty password (means "keep as-is")
@@ -252,6 +377,93 @@
       const t = await res.text();
       msg.textContent = "Ошибка: " + t;
       msg.className="muted err";
+    }
+  }
+
+  async function sendCommand(type, payload) {
+    const agentId = document.getElementById("agentSelect").value;
+    if (!agentId) return;
+    
+    if (!confirm("Вы уверены? Это действие выполнится на сервере агента.")) return;
+
+    const res = await fetch(`/api/agents/${agentId}/commands`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...apiKeyHeader() },
+        body: JSON.stringify({ type, payloadJson: JSON.stringify(payload) })
+    });
+    
+    if (res.ok) {
+        alert("Команда отправлена. Проверьте список публикаций через минуту.");
+        loadAgentSettings(); // refresh
+    } else {
+        alert("Ошибка: " + await res.text());
+    }
+  }
+
+  function showPublishModal() {
+    document.getElementById("publishModal").showModal();
+  }
+  
+  function sendPublish() {
+    const payload = {
+        BaseName: document.getElementById("pubName").value, // logic uses BaseName as AppName for webinst
+        FolderPath: document.getElementById("pubPath").value,
+        ConnectionString: document.getElementById("pubConn").value,
+        Version: document.getElementById("pubVersion").value
+    };
+    if (!payload.BaseName || !payload.FolderPath || !payload.Version) {
+        alert("Заполните поля"); return;
+    }
+    sendCommand("Publish", payload);
+    document.getElementById("publishModal").close();
+  }
+
+  function showMassUpdateModal() {
+    document.getElementById("massUpdateModal").showModal();
+  }
+
+  function sendMassUpdate() {
+    const payload = {
+        SourceVersion: document.getElementById("massSource").value,
+        TargetVersion: document.getElementById("massTarget").value
+    };
+    if (!payload.SourceVersion || !payload.TargetVersion) { alert("Выберите версии"); return; }
+    sendCommand("MassUpdateVersions", payload);
+    document.getElementById("massUpdateModal").close();
+  }
+
+  function promptUpdateVersion(siteName, appPath, currentVer) {
+    const newVer = prompt(`Текущая версия: ${currentVer}\nВведите новую версию:`, currentAgentData?.defaultOneCVersion || "");
+    if (newVer && newVer !== currentVer) {
+        const payload = {
+            SiteName: siteName,
+            AppPath: appPath,
+            Version: newVer, // logic uses this to find bin path
+            BaseName: appPath // used for matching in Update logic if needed, but logic uses Site+Path
+        };
+        // Reuse Publish command logic which handles "Exists" case as "Update"
+        // Or better: use explicit UpdatePublicationVersion if supported, but Publish handles it.
+        // Let's use Publish command which is smart enough.
+        // Wait, Publish command expects FolderPath etc. 
+        // My backend logic for Publish checks existing by Site+Path.
+        // So I can send Publish with minimal info? No, it expects valid payload.
+        // Let's use the explicit 'UpdatePublicationVersion' logic if I exposed it?
+        // Ah, AgentCommandProcessor handles "UpdatePublicationVersion" with {SiteName, AppPath, NewVersionBinPath}.
+        // But UI doesn't know BinPath.
+        // Better to use "Publish" command with existing site/path, logic handles update.
+        // But I need FolderPath etc?
+        // Actually, my backend 'HandlePublishAsync' logic: 
+        // if exists -> UpdatePublicationVersion(..., GetBinPath(p.Version)).
+        // So I can send dummy FolderPath/ConnString if I know it exists.
+        
+        // Safer: Send "Publish" with correct Site/Name/Version. Dummy folder/conn string is fine because they are ignored if exists.
+        sendCommand("Publish", {
+            SiteName: siteName,
+            BaseName: appPath,
+            Version: newVer,
+            FolderPath: "dummy", 
+            ConnectionString: "dummy"
+        });
     }
   }
 

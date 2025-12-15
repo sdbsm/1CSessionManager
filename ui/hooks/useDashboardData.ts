@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { apiFetchJson } from '../services/apiClient';
 import { SystemEvent } from '../types';
-import { TimeRange } from './useTimeRange';
+import { computeTimeRange, TimeRange } from './useTimeRange';
 
 export interface DiskInfo {
   Name: string;
@@ -60,6 +60,10 @@ export function useDashboardData(timeRange: TimeRange) {
 
     const load = async () => {
       try {
+        // Re-compute fresh range to avoid stale closure
+        const freshRange = computeTimeRange(timeRange.preset);
+        const toBuffered = new Date(freshRange.toUtc.getTime() + 5 * 60_000); // +5 min buffer
+
         const [statsRes, topRes, warnRes, healthRes, dbRes, sqlRes, licRes, eventsRes] = await Promise.all([
           apiFetchJson<DashboardStats>('/api/dashboard/stats'),
           apiFetchJson<TopClient[]>('/api/dashboard/top-clients'),
@@ -69,7 +73,7 @@ export function useDashboardData(timeRange: TimeRange) {
           apiFetchJson<{ isSet: boolean }>('/api/setup/sql/status', { skipAuthHeader: true }),
           apiFetchJson<{ isSet: boolean; total?: number | null }>('/api/admin/licenses/status'),
           apiFetchJson<SystemEvent[]>(
-            `/api/events?fromUtc=${encodeURIComponent(timeRange.fromUtc.toISOString())}&toUtc=${encodeURIComponent(timeRange.toUtc.toISOString())}&levels=critical,warning&take=50`
+            `/api/events?fromUtc=${encodeURIComponent(freshRange.fromUtc.toISOString())}&toUtc=${encodeURIComponent(toBuffered.toISOString())}&levels=critical,warning&take=50`
           )
         ]);
 

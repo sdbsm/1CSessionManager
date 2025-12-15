@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Plus, Search, Filter, ArrowUpDown } from 'lucide-react';
-import { Client } from '../../types';
+import { Client, AgentPublicationDto } from '../../types';
 import { Button } from '../../components/ui/Button';
 import { PageHeader } from '../../components/ui/PageHeader';
 import { Input } from '../../components/ui/Input';
@@ -9,6 +9,10 @@ import { ClientModal } from './ClientModal';
 import { ClientStats } from './ClientStats';
 import { UnassignedDatabases } from './UnassignedDatabases';
 import { useInfobases } from '../../hooks/useInfobases';
+import { useSettings } from '../../hooks/useSettings';
+import { apiFetch } from '../../services/apiClient';
+import { Modal } from '../../components/ui/Modal';
+import { Select } from '../../components/ui/Select';
 
 interface ClientsProps {
   clients: Client[];
@@ -45,6 +49,103 @@ const Clients: React.FC<ClientsProps> = ({ clients, onAdd, onUpdate, onDelete })
     );
     setUnassignedDatabases(unassigned);
   }, [clients, availableDbs]);
+
+  // Mass Update State
+  const [isMassModalOpen, setMassModalOpen] = useState(false);
+  const [massSource, setMassSource] = useState('');
+  const [massTarget, setMassTarget] = useState('');
+  
+  // Publish Modal State
+  const [isPubModalOpen, setIsPubModalOpen] = useState(false);
+  const [pubDbName, setPubDbName] = useState('');
+  const [pubName, setPubName] = useState('');
+  const [pubPath, setPubPath] = useState('C:\\inetpub\\wwwroot\\');
+  const [pubVer, setPubVer] = useState('');
+  // New state to track if we are editing an existing publication
+  const [isEditingPub, setIsEditingPub] = useState(false);
+
+  // Settings for publications
+  const { settings, agentId } = useSettings();
+  const versions = settings?.installedVersionsJson ? JSON.parse(settings.installedVersionsJson) as string[] : [];
+  const publications = settings?.publications || [];
+
+  useEffect(() => {
+    if (settings?.defaultOneCVersion && !pubVer) {
+      setMassTarget(settings.defaultOneCVersion);
+      setPubVer(settings.defaultOneCVersion);
+    }
+  }, [settings, pubVer]);
+
+  const sendCommand = async (type: string, payload: any) => {
+    if (!agentId) return;
+    try {
+      await apiFetch(`/api/agents/${agentId}/commands`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type, payloadJson: JSON.stringify(payload) })
+      });
+      alert('Команда отправлена агенту. Статус обновится через минуту.');
+    } catch (e: any) {
+      alert('Ошибка: ' + e.message);
+    }
+  };
+
+  const handleMassUpdate = () => {
+    if (!massTarget) return; // Only target is required now
+    sendCommand('MassUpdateVersions', {
+      SourceVersion: massSource,
+      TargetVersion: massTarget
+    });
+    setMassModalOpen(false);
+  };
+
+  const handlePublishClick = (dbName: string) => {
+    setPubDbName(dbName);
+    setPubName(dbName); // Default pub name = db name
+    setPubPath(`C:\\inetpub\\wwwroot\\${dbName}`);
+    if (settings?.defaultOneCVersion) {
+        setPubVer(settings.defaultOneCVersion);
+    }
+    setIsEditingPub(false);
+    setIsPubModalOpen(true);
+  };
+
+  const handleEditPublication = (dbName: string, pub: AgentPublicationDto) => {
+    setPubDbName(dbName);
+    setPubName(pub.siteName); // siteName usually corresponds to the URL path part if structured correctly, or we use AppPath without slash
+    // AppPath is usually "/baseName", so we strip slash
+    const derivedName = pub.appPath.startsWith('/') ? pub.appPath.substring(1) : pub.appPath;
+    setPubName(derivedName || pub.siteName); 
+    setPubPath(pub.physicalPath);
+    setPubVer(pub.version || settings?.defaultOneCVersion || '');
+    setIsEditingPub(true);
+    setIsPubModalOpen(true);
+  };
+
+  const handlePublishSubmit = () => {
+    if (!pubName || !pubPath || !pubVer) return;
+    
+    // Construct AppPath (usually /Name)
+    const appPath = pubName.startsWith('/') ? pubName : `/${pubName}`;
+
+    sendCommand('Publish', {
+      SiteName: "Default Web Site", // Default IIS site, or make it configurable if needed? existing code used SiteName from DTO but "Default Web Site" implicitly for new ones. 
+      // Actually, existing code used 'BaseName' which backend mapped to AppPath/Name.
+      // Let's stick to what worked or what is expected.
+      // Based on previous PublicationsSection:
+      // New: BaseName, FolderPath, ConnectionString, Version
+      // Edit: SiteName, BaseName (AppPath), Version, FolderPath, ConnectionString
+      
+      // If we are editing, we should probably preserve the SiteName if possible, but the backend 'Publish' command
+      // might expect 'BaseName' to be the app name.
+      
+      BaseName: pubName, 
+      FolderPath: pubPath,
+      ConnectionString: `Srvr="localhost";Ref="${pubDbName}";`,
+      Version: pubVer
+    });
+    setIsPubModalOpen(false);
+  };
 
   // Filtered and sorted clients
   const filteredAndSortedClients = useMemo(() => {
@@ -166,9 +267,14 @@ const Clients: React.FC<ClientsProps> = ({ clients, onAdd, onUpdate, onDelete })
         title="Клиенты и Лимиты"
         description="Управление базами данных и квотами сеансов"
         actions={
-          <Button onClick={handleOpenAdd} icon={<Plus size={18} />}>
-            Добавить клиента
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="secondary" onClick={() => setMassModalOpen(true)}>
+               🔄 Массовая смена платформы
+            </Button>
+            <Button onClick={handleOpenAdd} icon={<Plus size={18} />}>
+              Добавить клиента
+            </Button>
+          </div>
         }
       />
 
@@ -264,6 +370,9 @@ const Clients: React.FC<ClientsProps> = ({ clients, onAdd, onUpdate, onDelete })
           onEdit={handleOpenEdit}
           onDelete={onDelete}
           onRemoveDatabase={handleRemoveDatabase}
+          publications={publications}
+          onPublish={handlePublishClick}
+          onEditPublication={handleEditPublication}
         />
       </div>
 
@@ -274,6 +383,67 @@ const Clients: React.FC<ClientsProps> = ({ clients, onAdd, onUpdate, onDelete })
         onSave={handleSaveClient}
         clients={clients}
       />
+
+      {/* Mass Update Modal */}
+      <Modal 
+        isOpen={isMassModalOpen} 
+        onClose={() => setMassModalOpen(false)} 
+        title="Массовая смена платформы"
+      >
+        <div className="space-y-4">
+            <p className="text-sm text-slate-400">
+                Переключение всех публикаций с одной версии на другую.
+            </p>
+            <div className="space-y-1">
+                <label className="block text-sm font-medium text-slate-300">Исходная версия (откуда)</label>
+                <Select 
+                    value={massSource} 
+                    onChange={e => setMassSource(e.target.value)}
+                    options={[{value:'', label:'Все (любая версия)'}, ...versions.map(v => ({ value: v, label: v }))]}
+                />
+            </div>
+            <div className="space-y-1">
+                <label className="block text-sm font-medium text-slate-300">Целевая версия (куда)</label>
+                <Select 
+                    value={massTarget} 
+                    onChange={e => setMassTarget(e.target.value)}
+                    options={[{value:'', label:'--'}, ...versions.map(v => ({ value: v, label: v }))]}
+                />
+            </div>
+            <div className="pt-4 flex justify-end gap-3">
+                <Button variant="secondary" onClick={() => setMassModalOpen(false)}>Отмена</Button>
+                <Button onClick={handleMassUpdate}>Запустить</Button>
+            </div>
+        </div>
+      </Modal>
+
+      {/* Publish Modal */}
+      <Modal
+        isOpen={isPubModalOpen}
+        onClose={() => setIsPubModalOpen(false)}
+        title={isEditingPub ? `Настройки публикации: ${pubDbName}` : `Новая публикация: ${pubDbName}`}
+      >
+        <div className="space-y-4">
+            <Input label="Имя публикации (URL path)" value={pubName} onChange={e => setPubName(e.target.value)} />
+            <Input label="Путь к папке (Physical Path)" value={pubPath} onChange={e => setPubPath(e.target.value)} />
+            
+            <div className="space-y-1">
+                <label className="block text-sm font-medium text-slate-300">Версия платформы</label>
+                <Select 
+                    value={pubVer} 
+                    onChange={e => setPubVer(e.target.value)}
+                    options={versions.map(v => ({ value: v, label: v }))}
+                />
+            </div>
+
+            <div className="pt-4 flex justify-end gap-3">
+                <Button variant="secondary" onClick={() => setIsPubModalOpen(false)}>Отмена</Button>
+                <Button onClick={handlePublishSubmit}>
+                    {isEditingPub ? 'Сохранить изменения' : 'Опубликовать'}
+                </Button>
+            </div>
+        </div>
+      </Modal>
     </div>
   );
 };
