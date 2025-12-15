@@ -45,7 +45,7 @@ export const SystemStats: React.FC<SystemStatsProps> = ({ serverMetrics, totalDa
          color={diskPercent > 90 ? 'red' : diskPercent > 75 ? 'orange' : 'green'}
        />
        <StatCard
-         title="Базы данных"
+         title="Инфобазы"
          value={`${totalDatabases ?? 0}`}
          description={totalDbSizeGB ? `Общий объем: ${totalDbSizeGB} GB` : "Количество ИБ"}
          icon={Database}

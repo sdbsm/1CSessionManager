@@ -1,28 +1,30 @@
-import React, { useState } from 'react';
-import { Search, Loader2, Check, X, Database } from 'lucide-react';
+import React, { useMemo, useState } from 'react';
+import { Search, Loader2, Check, X, Database, Plus } from 'lucide-react';
 import { Client } from '../../types';
 import { useInfobases } from '../../hooks/useInfobases';
+import { useToast } from '../../hooks/useToast';
 
 interface DatabaseSelectionProps {
-  manualDbInput: string;
-  setManualDbInput: (value: string) => void;
+  selectedDbNames: string[];
+  setSelectedDbNames: (value: string[]) => void;
   clients: Client[];
   editingClient: Client | null;
 }
 
 export const DatabaseSelection: React.FC<DatabaseSelectionProps> = ({
-  manualDbInput,
-  setManualDbInput,
+  selectedDbNames,
+  setSelectedDbNames,
   clients,
   editingClient
 }) => {
   const { availableDbs, loading, fetchDatabases } = useInfobases();
+  const toast = useToast();
   const [dbSearch, setDbSearch] = useState('');
+  const [manualAdd, setManualAdd] = useState('');
 
-  const isDbSelectedInText = (dbName: string) => {
-    const currentList = manualDbInput.split(/[\n,]+/).map(s => s.trim());
-    return currentList.includes(dbName);
-  };
+  const normalizedSelected = useMemo(() => {
+    return new Set(selectedDbNames.map(s => s.trim()).filter(Boolean));
+  }, [selectedDbNames]);
 
   const toggleDatabaseSelection = (dbName: string) => {
     const assignedToOtherClient = clients.find(c => {
@@ -31,11 +33,14 @@ export const DatabaseSelection: React.FC<DatabaseSelectionProps> = ({
     });
     
     if (assignedToOtherClient) {
-      alert(`База данных "${dbName}" уже привязана к клиенту "${assignedToOtherClient.name}".\n\nКаждая база может быть привязана только к одному клиенту.`);
+      toast.error({
+        title: 'Конфликт привязки',
+        message: `База «${dbName}» уже привязана к клиенту «${assignedToOtherClient.name}».\nКаждая база может быть привязана только к одному клиенту.`
+      });
       return;
     }
     
-    const currentList = manualDbInput.split(/[\n,]+/).map(s => s.trim()).filter(s => s);
+    const currentList = selectedDbNames.map(s => s.trim()).filter(Boolean);
     const exists = currentList.includes(dbName);
     
     let newList;
@@ -45,12 +50,65 @@ export const DatabaseSelection: React.FC<DatabaseSelectionProps> = ({
       newList = [...currentList, dbName];
     }
     
-    setManualDbInput(newList.join(', '));
+    setSelectedDbNames(newList);
   };
 
-  const filteredAvailableDbs = availableDbs.filter(db => 
-    db.name.toLowerCase().includes(dbSearch.toLowerCase())
-  );
+  const filteredAvailableDbs = useMemo(() => {
+    const q = dbSearch.trim().toLowerCase();
+    return q ? availableDbs.filter(db => db.name.toLowerCase().includes(q)) : availableDbs;
+  }, [availableDbs, dbSearch]);
+
+  const handleManualAdd = () => {
+    const raw = (manualAdd || '').trim();
+    if (!raw) return;
+
+    const tokens = raw.split(/[\n,]+/).map(s => s.trim()).filter(Boolean);
+    if (tokens.length === 0) return;
+
+    const availableByLower = new Map<string, string>();
+    for (const db of availableDbs) availableByLower.set(db.name.toLowerCase(), db.name);
+
+    const next = new Set(selectedDbNames.map(s => s.trim()).filter(Boolean));
+    const notFound: string[] = [];
+    const skippedAssigned: string[] = [];
+
+    for (const t of tokens) {
+      const canonical = availableByLower.get(t.toLowerCase());
+      if (!canonical) {
+        notFound.push(t);
+        continue;
+      }
+
+      const assignedToOtherClient = clients.find(c => {
+        if (editingClient && c.id === editingClient.id) return false;
+        return c.databases.some(d => d.name === canonical);
+      });
+
+      if (assignedToOtherClient) {
+        skippedAssigned.push(canonical);
+        continue;
+      }
+
+      next.add(canonical);
+    }
+
+    setSelectedDbNames(Array.from(next));
+    setManualAdd('');
+
+    if (notFound.length > 0) {
+      toast.warning({
+        title: 'Часть инфобаз не найдена',
+        message: `Проверьте названия: ${notFound.slice(0, 10).join(', ')}${notFound.length > 10 ? '…' : ''}`
+      });
+    }
+
+    if (skippedAssigned.length > 0) {
+      toast.error({
+        title: 'Конфликт привязки',
+        message: `Эти инфобазы уже привязаны к другим клиентам: ${skippedAssigned.slice(0, 10).join(', ')}${skippedAssigned.length > 10 ? '…' : ''}`
+      });
+    }
+  };
 
   return (
     <div className="rounded-lg border p-4 bg-white/5 border-white/10">
@@ -60,7 +118,7 @@ export const DatabaseSelection: React.FC<DatabaseSelectionProps> = ({
           type="text" 
           value={dbSearch}
           onChange={(e) => setDbSearch(e.target.value)}
-          placeholder="Поиск баз данных..." 
+          placeholder="Поиск инфобаз..." 
           className="w-full pl-9 pr-3 py-1.5 text-sm border rounded-md focus:ring-1 focus:ring-indigo-500 bg-white/5 border-white/10 text-slate-100 placeholder:text-slate-500"
         />
       </div>
@@ -73,7 +131,7 @@ export const DatabaseSelection: React.FC<DatabaseSelectionProps> = ({
           </div>
         ) : filteredAvailableDbs.length > 0 ? (
           filteredAvailableDbs.map(db => {
-            const isSelected = isDbSelectedInText(db.name);
+            const isSelected = normalizedSelected.has(db.name);
             const assignedToClient = clients.find(c => {
               if (editingClient && c.id === editingClient.id) return false;
               return c.databases.some(d => d.name === db.name);
@@ -120,25 +178,60 @@ export const DatabaseSelection: React.FC<DatabaseSelectionProps> = ({
         )}
       </div>
       
-      <div className="mt-3 pt-3 border-t border-white/10">
-        <label className="block text-xs font-semibold mb-1 text-slate-200">
-          Список баз данных (вручную):
-        </label>
-        <p className="text-xs mb-2 text-slate-500">
-          Введите названия баз, разделяя их запятыми или с новой строки.
-        </p>
-        <textarea 
-          value={manualDbInput}
-          onChange={e => setManualDbInput(e.target.value)}
-          className="w-full px-3 py-2 text-sm border rounded-md focus:ring-2 focus:ring-indigo-500 font-mono bg-white/5 border-white/10 text-slate-100 placeholder:text-slate-500"
-          placeholder="Base1, Base2, Base3..."
-          rows={3}
-        />
-      </div>
-      
-      <div className="mt-2 flex justify-between text-xs text-slate-400">
-        <span>Найдено баз: <b className="text-slate-200">{manualDbInput.split(/[\n,]+/).filter(s=>s.trim()).length}</b></span>
-        {loading && <span>Синхронизация...</span>}
+      <div className="mt-3 pt-3 border-t border-white/10 space-y-2">
+        <div className="flex items-center justify-between gap-2">
+          <div className="text-xs text-slate-400">
+            Выбрано инфобаз: <b className="text-slate-200">{selectedDbNames.map(s => s.trim()).filter(Boolean).length}</b>
+          </div>
+          <button
+            type="button"
+            onClick={() => fetchDatabases()}
+            className="text-xs px-2 py-1 rounded-md bg-white/5 hover:bg-white/10 border border-white/10 text-slate-200"
+            title="Обновить список инфобаз"
+          >
+            Обновить список
+          </button>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <input
+            value={manualAdd}
+            onChange={(e) => setManualAdd(e.target.value)}
+            placeholder="Добавить вручную: Base1, Base2..."
+            className="flex-1 px-3 py-2 text-sm border rounded-md focus:ring-2 focus:ring-indigo-500 font-mono bg-white/5 border-white/10 text-slate-100 placeholder:text-slate-500"
+          />
+          <button
+            type="button"
+            onClick={handleManualAdd}
+            disabled={!manualAdd.trim()}
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-md bg-indigo-600 hover:bg-indigo-700 text-white text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+            title="Добавить инфобазы"
+          >
+            <Plus size={14} />
+            Добавить
+          </button>
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          {selectedDbNames.map((name) => (
+            <button
+              key={name}
+              type="button"
+              onClick={() => toggleDatabaseSelection(name)}
+              className="inline-flex items-center gap-2 px-2 py-1 rounded-full text-xs border border-white/10 bg-white/5 text-slate-200 hover:bg-white/10"
+              title="Убрать из выбранных"
+            >
+              <Database size={12} className="text-slate-400" />
+              <span className="max-w-[220px] truncate">{name}</span>
+              <X size={12} className="text-slate-500" />
+            </button>
+          ))}
+          {selectedDbNames.length === 0 ? (
+            <div className="text-xs text-slate-500">Ничего не выбрано.</div>
+          ) : null}
+        </div>
+
+        {loading ? <div className="text-xs text-slate-500">Загрузка списка инфобаз…</div> : null}
       </div>
     </div>
   );

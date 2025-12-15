@@ -47,8 +47,8 @@ export const ActiveIssues: React.FC<ActiveIssuesProps> = ({
     if (dbEndpointStatus === 'not_set' || sqlLoginStatus === 'not_set') {
       list.push({
         severity: 'warning',
-        title: 'База данных не настроена полностью',
-        description: 'Для хранения метрик/событий требуется DB endpoint и SQL login (Credential Manager).',
+        title: 'Хранилище (SQL) не настроено полностью',
+        description: 'Для хранения метрик/событий требуется подключение к SQL (сервер/база) и SQL учётные данные (Windows Credential Manager).',
         action: { label: 'Открыть настройки', run: () => { window.location.hash = '#/settings'; } }
       });
     }
@@ -96,7 +96,7 @@ export const ActiveIssues: React.FC<ActiveIssuesProps> = ({
       <div className="px-5 py-4 border-b border-white/10 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <AlertTriangle size={18} className="text-amber-300" />
-          <div className="font-semibold text-slate-50">Active Issues</div>
+          <div className="font-semibold text-slate-50">Активные проблемы</div>
         </div>
         <button
           className="text-xs px-3 py-1.5 rounded-md bg-white/5 hover:bg-white/10 border border-white/10 text-slate-200"

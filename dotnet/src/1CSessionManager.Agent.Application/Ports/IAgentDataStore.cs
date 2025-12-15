@@ -34,6 +34,7 @@ public interface IAgentDataStore
 
     Task<AgentCommand?> GetNextPendingCommandAsync(Guid agentId, CancellationToken ct);
     Task UpdateCommandStatusAsync(Guid commandId, string status, string? errorMessage, CancellationToken ct);
+    Task UpdateCommandProgressAsync(Guid commandId, int? progressPercent, string? progressMessage, CancellationToken ct);
 
     Task UpdateAgentMetadataAsync(Guid agentId, List<string> installedVersions, List<OneCPublication> publications, CancellationToken ct);
 }

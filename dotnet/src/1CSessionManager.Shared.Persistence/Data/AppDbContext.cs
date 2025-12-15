@@ -128,6 +128,7 @@ public sealed class AppDbContext(DbContextOptions<AppDbContext> options) : DbCon
             e.HasKey(x => x.Id);
             e.Property(x => x.CommandType).HasMaxLength(64);
             e.Property(x => x.Status).HasMaxLength(32);
+            e.Property(x => x.ProgressMessage).HasMaxLength(256);
             e.HasIndex(x => new { x.AgentId, x.Status });
         });
 

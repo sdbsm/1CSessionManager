@@ -43,10 +43,23 @@ namespace SessionManager.Control.Data.Migrations
                     b.Property<string>("ErrorMessage")
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<DateTime?>("LastUpdatedAtUtc")
+                        .HasColumnType("datetime2");
+
                     b.Property<string>("PayloadJson")
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<int?>("ProgressPercent")
+                        .HasColumnType("int");
+
+                    b.Property<string>("ProgressMessage")
+                        .HasMaxLength(256)
+                        .HasColumnType("nvarchar(256)");
+
                     b.Property<DateTime?>("ProcessedAtUtc")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("StartedAtUtc")
                         .HasColumnType("datetime2");
 
                     b.Property<string>("Status")

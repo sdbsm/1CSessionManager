@@ -10,6 +10,7 @@ import { TopDatabases } from './TopDatabases';
 import { WarningsList } from './WarningsList';
 import { RecentEvents } from './RecentEvents';
 import { Spinner } from '../../components/ui/Spinner';
+import { QuickActions } from './QuickActions';
 
 interface DashboardProps {
   clients: Client[];
@@ -78,6 +79,8 @@ const Dashboard: React.FC<DashboardProps> = ({ clients, timeRange, timePreset, s
         warnings={warnings}
         licenseCap={licenseCap}
       />
+
+      <QuickActions />
 
       {/* Secondary: Snapshot */}
       <StatsOverview

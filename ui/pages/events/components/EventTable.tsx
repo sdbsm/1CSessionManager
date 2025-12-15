@@ -2,6 +2,8 @@ import React from 'react';
 import { AlertCircle, AlertTriangle, Info, ChevronDown, ChevronUp, Briefcase, Database, User, Hash } from 'lucide-react';
 import { SystemEvent, AlertLevel } from '../../../types';
 import { SortField, SortDirection } from '../../../hooks/useEvents';
+import { useUiPrefs } from '../../../hooks/useUiPrefs';
+import { formatEventTimestamp } from '../../../utils/time';
 
 interface EventTableProps {
   events: SystemEvent[];
@@ -10,6 +12,7 @@ interface EventTableProps {
   onSort: (field: SortField) => void;
   onEventClick: (event: SystemEvent) => void;
   selectedEventId?: string;
+  lastSeenUtcIso?: string | null;
 }
 
 function getLevelIcon(level: AlertLevel) {
@@ -20,14 +23,23 @@ function getLevelIcon(level: AlertLevel) {
   }
 }
 
+function eventDateUtc(e: SystemEvent): Date {
+  if (e.timestampUtc) return new Date(e.timestampUtc);
+  if (e.timestamp) return new Date(e.timestamp);
+  if (e.timestampLocal) return new Date(e.timestampLocal);
+  return new Date(0);
+}
+
 const EventTable: React.FC<EventTableProps> = ({
   events,
   sortField,
   sortDirection,
   onSort,
   onEventClick,
-  selectedEventId
+  selectedEventId,
+  lastSeenUtcIso
 }) => {
+  const { prefs } = useUiPrefs();
   if (events.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center p-12 text-slate-500">
@@ -69,22 +81,27 @@ const EventTable: React.FC<EventTableProps> = ({
         </thead>
         <tbody className="divide-y divide-white/5 text-sm">
           {events.map(ev => {
-             const dateStr = ev.timestampLocal || (ev.timestampUtc ? new Date(ev.timestampUtc).toLocaleString('ru-RU') : ev.timestamp || '—');
+             const ts = formatEventTimestamp(ev, prefs.timeFormat);
              const isSelected = ev.id === selectedEventId;
+             const lastSeen = lastSeenUtcIso ? new Date(lastSeenUtcIso) : null;
+             const isNew = !!lastSeen && eventDateUtc(ev).getTime() > lastSeen.getTime();
 
              return (
               <tr 
                 key={ev.id} 
                 className={`
                     cursor-pointer transition-colors
-                    ${isSelected ? 'bg-indigo-500/10 hover:bg-indigo-500/20' : 'hover:bg-white/5'}
+                    ${isSelected ? 'bg-indigo-500/10 hover:bg-indigo-500/20' : isNew ? 'bg-sky-500/5 hover:bg-sky-500/10' : 'hover:bg-white/5'}
                 `}
                 onClick={() => onEventClick(ev)}
               >
-                <td className="px-4 py-2 text-xs font-mono text-slate-400 whitespace-nowrap align-top">
-                    {dateStr}
+                <td className={`px-4 ${prefs.density === 'compact' ? 'py-1.5' : 'py-2'} text-xs font-mono text-slate-400 whitespace-nowrap align-top`}>
+                    <div className="flex items-center gap-2">
+                      {isNew ? <span className="w-1.5 h-1.5 rounded-full bg-sky-400" title="Новое событие" /> : null}
+                      <span title={ts.title || undefined}>{ts.text}</span>
+                    </div>
                 </td>
-                <td className="px-4 py-2 align-top">
+                <td className={`px-4 ${prefs.density === 'compact' ? 'py-1.5' : 'py-2'} align-top`}>
                     <div className="flex items-center gap-2">
                         {getLevelIcon(ev.level)}
                         <span className={`text-xs font-medium ${
@@ -95,7 +112,7 @@ const EventTable: React.FC<EventTableProps> = ({
                         </span>
                     </div>
                 </td>
-                <td className="px-4 py-2 align-top">
+                <td className={`px-4 ${prefs.density === 'compact' ? 'py-1.5' : 'py-2'} align-top`}>
                    <div className="flex flex-col gap-1 items-start">
                      {ev.clientName && (
                        <div className="inline-flex items-center gap-1.5 px-1.5 py-0.5 rounded bg-indigo-500/10 text-indigo-300 border border-indigo-500/20 max-w-full" title={`Клиент: ${ev.clientName}`}>
@@ -104,7 +121,7 @@ const EventTable: React.FC<EventTableProps> = ({
                        </div>
                      )}
                      {ev.databaseName && (
-                       <div className="inline-flex items-center gap-1.5 px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 border border-white/10 max-w-full" title={`БД: ${ev.databaseName}`}>
+                      <div className="inline-flex items-center gap-1.5 px-1.5 py-0.5 rounded bg-slate-800 text-slate-300 border border-white/10 max-w-full" title={`Инфобаза: ${ev.databaseName}`}>
                          <Database size={10} className="shrink-0" />
                          <span className="text-[10px] font-medium truncate">{ev.databaseName}</span>
                        </div>
@@ -120,7 +137,7 @@ const EventTable: React.FC<EventTableProps> = ({
                      )}
                    </div>
                 </td>
-                <td className="px-4 py-2 text-slate-200 font-mono text-xs align-top">
+                <td className={`px-4 ${prefs.density === 'compact' ? 'py-1.5' : 'py-2'} text-slate-200 font-mono text-xs align-top`}>
                     <div className="break-all whitespace-pre-wrap max-h-[4.5em] overflow-hidden text-ellipsis line-clamp-3" title={ev.message}>
                         {ev.message}
                     </div>

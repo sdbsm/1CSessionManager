@@ -18,6 +18,12 @@ public sealed class AgentCommand
     public string Status { get; set; } = "Pending"; // "Pending", "Processing", "Completed", "Failed"
     
     public string? ErrorMessage { get; set; }
+
+    // Progress (optional; used for long-running agent operations)
+    public int? ProgressPercent { get; set; } // 0..100
+    public string? ProgressMessage { get; set; }
+    public DateTime? StartedAtUtc { get; set; }
+    public DateTime? LastUpdatedAtUtc { get; set; }
     
     public DateTime CreatedAtUtc { get; set; }
     public DateTime? ProcessedAtUtc { get; set; }

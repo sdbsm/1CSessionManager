@@ -114,6 +114,39 @@ public static class AgentsEndpoints
             
             return Results.Ok(new { commandId = cmd.Id });
         });
+        
+        // Recent agent commands (status/progress surface for UI)
+        endpoints.MapGet("/api/agents/{agentId}/commands", async (
+            Guid agentId,
+            int? take,
+            IDbContextFactory<AppDbContext> dbFactory,
+            CancellationToken ct) =>
+        {
+            await using var db = await dbFactory.CreateDbContextAsync(ct);
+
+            var n = Math.Clamp(take ?? 20, 1, 200);
+
+            var rows = await db.AgentCommands
+                .AsNoTracking()
+                .Where(x => x.AgentId == agentId)
+                .OrderByDescending(x => x.CreatedAtUtc)
+                .Take(n)
+                .Select(x => new AgentCommandDto(
+                    x.Id,
+                    x.CommandType,
+                    x.Status,
+                    x.ErrorMessage,
+                    x.ProgressPercent,
+                    x.ProgressMessage,
+                    x.StartedAtUtc,
+                    x.LastUpdatedAtUtc,
+                    x.CreatedAtUtc,
+                    x.ProcessedAtUtc
+                ))
+                .ToListAsync(ct);
+
+            return Results.Ok(rows);
+        });
 
         // Default-agent fallback for UI requests that don't specify agentId (backward compatible)
         endpoints.MapGet("/api/_internal/default-agent", async (IDbContextFactory<AppDbContext> dbFactory, CancellationToken ct) =>
@@ -152,6 +185,18 @@ public static class AgentsEndpoints
         string? DefaultOneCVersion);
         
     internal sealed record AgentCommandRequest(string Type, string? PayloadJson);
+
+    internal sealed record AgentCommandDto(
+        Guid Id,
+        string CommandType,
+        string Status,
+        string? ErrorMessage,
+        int? ProgressPercent,
+        string? ProgressMessage,
+        DateTime? StartedAtUtc,
+        DateTime? LastUpdatedAtUtc,
+        DateTime CreatedAtUtc,
+        DateTime? ProcessedAtUtc);
         
     internal sealed record AgentPublicationDto(
         Guid Id,

@@ -1,41 +1,30 @@
 import React from 'react';
 import { 
-  ChevronDown, 
-  ChevronUp, 
-  Database, 
-  FileText, 
-  Pencil, 
-  Trash2, 
-  XCircle,
-  Globe,
-  Settings 
+  FileText
 } from 'lucide-react';
-import { Client, AgentPublicationDto } from '../../types';
+import { Client } from '../../types';
 import { Badge } from '../../components/ui/Badge';
+import { ActionMenu } from '../../components/ui/ActionMenu';
+import { UiDensity } from '../../hooks/useUiPrefs';
 
 interface ClientRowProps {
   client: Client;
-  isExpanded: boolean;
-  onToggleExpand: (e: React.MouseEvent) => void;
-  onEdit: (e: React.MouseEvent) => void;
-  onDelete: (e: React.MouseEvent) => void;
-  onRemoveDatabase: (clientId: string, dbName: string) => void;
-  publications?: AgentPublicationDto[];
-  onPublish?: (dbName: string) => void;
-  onEditPublication?: (dbName: string, pub: AgentPublicationDto) => void;
+  onOpenDetails: (client: Client) => void;
+  onOpenEvents: (clientId: string) => void;
+  onEdit: (client: Client) => void;
+  onDelete: (clientId: string) => void;
+  density: UiDensity;
 }
 
 export const ClientRow: React.FC<ClientRowProps> = ({
   client,
-  isExpanded,
-  onToggleExpand,
+  onOpenDetails,
+  onOpenEvents,
   onEdit,
   onDelete,
-  onRemoveDatabase,
-  publications = [],
-  onPublish,
-  onEditPublication
+  density
 }) => {
+  const cellPad = density === 'compact' ? 'px-6 py-2' : 'px-6 py-4';
   const isUnlimited = client.maxSessions === 0;
   const percentage = !isUnlimited 
     ? Math.round((client.activeSessions / client.maxSessions) * 100) 
@@ -47,26 +36,34 @@ export const ClientRow: React.FC<ClientRowProps> = ({
   const remainingDbs = client.databases.length - previewDbs.length;
 
   return (
-    <React.Fragment>
-      <tr className={`group transition-colors ${isExpanded ? 'bg-indigo-500/10' : 'hover:bg-white/5'}`}>
-        <td className="px-6 py-4">
-          <button
-            onClick={onToggleExpand}
-            className="text-slate-500 hover:text-indigo-300 transition-colors"
-          >
-            {isExpanded ? <ChevronUp size={18} className="text-indigo-300" /> : <ChevronDown size={18} />}
-          </button>
-        </td>
-        <td className="px-6 py-4">
-          <div className="font-semibold text-slate-50">{client.name}</div>
-        </td>
-        <td className="px-6 py-4">
+    <tr
+      className="group transition-colors cursor-pointer hover:bg-white/5"
+      onClick={() => onOpenDetails(client)}
+      title="Открыть детали клиента"
+    >
+      <td className={`${cellPad} w-12`}>
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpenDetails(client);
+          }}
+          className="text-xs px-2 py-1 rounded-md border border-white/10 bg-white/5 hover:bg-white/10 text-slate-200 transition-colors"
+          title="Детали"
+          aria-label="Открыть детали клиента"
+        >
+          Детали
+        </button>
+      </td>
+      <td className={cellPad}>
+        <div className="font-semibold text-slate-50">{client.name}</div>
+      </td>
+        <td className={cellPad}>
           <div className="flex items-center gap-2 flex-wrap">
             {previewDbs.length > 0 ? (
               <>
                 {previewDbs.map((db, idx) => (
                   <span key={idx} className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium bg-indigo-500/10 text-indigo-200 ring-1 ring-indigo-500/20">
-                    <Database size={12} />
                     <span className="truncate max-w-[120px]">{db.name}</span>
                     {db.activeSessions > 0 && (
                       <span className="text-white px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-indigo-500">
@@ -77,7 +74,11 @@ export const ClientRow: React.FC<ClientRowProps> = ({
                 ))}
                 {remainingDbs > 0 && (
                   <button
-                    onClick={onToggleExpand}
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onOpenDetails(client);
+                    }}
                     className="text-xs text-indigo-300 hover:text-indigo-200 font-medium"
                   >
                     +{remainingDbs} еще
@@ -89,7 +90,7 @@ export const ClientRow: React.FC<ClientRowProps> = ({
             )}
           </div>
         </td>
-        <td className="px-6 py-4 align-middle">
+        <td className={`${cellPad} align-middle`}>
           <div className="w-full max-w-[180px]">
             <div className="flex justify-between text-sm mb-2">
               <span className="font-semibold text-slate-200">
@@ -116,153 +117,33 @@ export const ClientRow: React.FC<ClientRowProps> = ({
             </div>
           </div>
         </td>
-        <td className="px-6 py-4 align-middle">
+        <td className={`${cellPad} align-middle`}>
           <Badge variant={client.status === 'active' ? 'success' : client.status === 'blocked' ? 'danger' : 'warning'}>
              {client.status === 'active' ? 'Активен' : client.status === 'blocked' ? 'Блокировка' : 'Внимание'}
           </Badge>
         </td>
-        <td className="px-6 py-4 text-right">
+        <td className={`${cellPad} text-right`}>
           <div className="flex items-center justify-end gap-2">
             <button
               onClick={(e) => {
                 e.stopPropagation();
-                window.location.hash = `#/events?clientId=${encodeURIComponent(client.id)}`;
+                onOpenEvents(client.id);
               }}
               className="text-slate-300 hover:text-white p-2 hover:bg-white/5 rounded-md transition-colors"
               title="Открыть события по клиенту"
             >
               <FileText size={16} />
             </button>
-            <button 
-              onClick={onEdit}
-              className="text-indigo-300 hover:text-indigo-200 p-2 hover:bg-indigo-500/10 rounded-md transition-colors" 
-              title="Редактировать"
-            >
-              <Pencil size={16} />
-            </button>
-            <button 
-              onClick={onDelete}
-              className="text-rose-300 hover:text-rose-200 p-2 hover:bg-rose-500/10 rounded-md transition-colors"
-              title="Удалить"
-            >
-              <Trash2 size={16} />
-            </button>
+
+            <ActionMenu
+              items={[
+                { id: 'edit', label: 'Редактировать', onClick: () => onEdit(client) },
+                { id: 'delete', label: 'Удалить', variant: 'danger', onClick: () => onDelete(client.id) }
+              ]}
+              ariaLabel="Действия с клиентом"
+            />
           </div>
         </td>
-      </tr>
-      
-      {/* Expanded Details Row */}
-      {isExpanded && (
-        <tr className="bg-indigo-500/5 border-b border-white/10">
-          <td colSpan={6} className="px-6 py-6">
-            <div className="ml-4">
-              <div className="flex items-center justify-between gap-3 mb-4">
-                <h4 className="text-sm font-semibold text-slate-200 flex items-center gap-2">
-                <Database size={16} />
-                Все базы данных ({client.databases.length})
-                </h4>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    window.location.hash = `#/events?clientId=${encodeURIComponent(client.id)}`;
-                  }}
-                  className="text-xs px-3 py-1.5 rounded-md border border-white/10 bg-white/5 hover:bg-white/10 text-slate-200 transition-colors flex items-center gap-2"
-                  title="Открыть события по клиенту"
-                >
-                  <FileText size={14} />
-                  События
-                </button>
-              </div>
-              {client.databases.length > 0 ? (
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-                  {client.databases.map((db, idx) => {
-                    // Find pub status
-                    const pub = publications.find(p => 
-                      p.appPath.replace(/^\//, '').toLowerCase() === db.name.toLowerCase()
-                    );
-                    
-                    return (
-                    <div key={idx} className="p-4 rounded-lg border shadow-sm hover:shadow-panel transition-shadow bg-slate-950/40 border-white/10 relative group/db">
-                      <div className="flex items-start justify-between mb-2">
-                        <div className="flex-1 min-w-0">
-                          <div className="font-medium text-sm truncate text-slate-50 flex items-center gap-2" title={db.name}>
-                            {db.name}
-                          </div>
-                          
-                          {/* Publication Status */}
-                          {pub ? (
-                            <div className="mt-2 flex flex-col gap-1">
-                                <span className="text-[10px] uppercase font-bold text-emerald-400 flex items-center gap-1">
-                                    <Globe size={10} />
-                                    WEB Опубликована
-                                </span>
-                                <div className="text-[10px] text-slate-400 font-mono truncate" title={pub.physicalPath}>
-                                    {pub.appPath} (v{pub.version})
-                                </div>
-                            </div>
-                          ) : (
-                             <div className="mt-2 text-[10px] text-slate-500 italic">Не опубликована</div>
-                          )}
-
-                        </div>
-                        <div className="flex flex-col gap-1 items-end">
-                            <button
-                              onClick={(e) => {
-                                 e.stopPropagation();
-                                 onRemoveDatabase(client.id, db.name);
-                              }}
-                              className="p-1 text-slate-500 hover:text-rose-400 transition-colors"
-                              title="Отвязать базу"
-                            >
-                              <XCircle size={14} />
-                            </button>
-                            
-                            {/* Publish / Edit Action */}
-                            {pub ? (
-                                onEditPublication && (
-                                    <button
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            onEditPublication(db.name, pub);
-                                        }}
-                                        className="p-1 text-slate-500 hover:text-indigo-300 transition-colors"
-                                        title="Настройки публикации"
-                                    >
-                                        <Settings size={14} />
-                                    </button>
-                                )
-                            ) : (
-                                onPublish && (
-                                    <button
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            onPublish(db.name);
-                                        }}
-                                        className="p-1 text-slate-500 hover:text-emerald-400 transition-colors"
-                                        title="Опубликовать"
-                                    >
-                                        <Globe size={14} />
-                                    </button>
-                                )
-                            )}
-                        </div>
-                      </div>
-                      <div className="flex items-center justify-between mt-3 pt-3 border-t border-white/10">
-                        <span className="text-xs uppercase font-semibold text-slate-400">Сеансы</span>
-                        <span className={`text-lg font-bold ${db.activeSessions > 0 ? 'text-indigo-200' : 'text-slate-500'}`}>
-                          {db.activeSessions}
-                        </span>
-                      </div>
-                    </div>
-                  )})}
-                </div>
-              ) : (
-                <div className="text-sm italic text-slate-500">Базы данных не привязаны.</div>
-              )}
-            </div>
-          </td>
-        </tr>
-      )}
-    </React.Fragment>
+    </tr>
   );
 };

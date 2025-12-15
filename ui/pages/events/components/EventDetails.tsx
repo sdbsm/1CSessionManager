@@ -3,6 +3,8 @@ import { SystemEvent } from '../../../types';
 import { SeverityBadge } from '../../../components/shared/SeverityBadge';
 import { Filter, Copy } from 'lucide-react';
 import { EventsFilters } from '../../../hooks/useEvents';
+import { useUiPrefs } from '../../../hooks/useUiPrefs';
+import { formatEventTimestamp } from '../../../utils/time';
 
 interface EventDetailsProps {
   event: SystemEvent;
@@ -11,6 +13,8 @@ interface EventDetailsProps {
 }
 
 const EventDetails: React.FC<EventDetailsProps> = ({ event, setFilterValue, onClose }) => {
+  const { prefs } = useUiPrefs();
+  const ts = formatEventTimestamp(event, prefs.timeFormat);
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text);
   };
@@ -21,7 +25,7 @@ const EventDetails: React.FC<EventDetailsProps> = ({ event, setFilterValue, onCl
       <div className="flex items-center gap-3 text-sm text-slate-400">
         <SeverityBadge level={event.level} />
         <span className="font-mono">
-            {event.timestampUtc || event.timestampLocal || event.timestamp}
+            <span title={ts.title || undefined}>{ts.text}</span>
         </span>
         <span className="text-slate-600">|</span>
         <span className="font-mono text-xs text-slate-500">{event.id}</span>
@@ -69,13 +73,13 @@ const EventDetails: React.FC<EventDetailsProps> = ({ event, setFilterValue, onCl
 
                 {event.databaseName ? (
                     <div className="flex items-center justify-between group">
-                        <span className="text-slate-400">База данных:</span>
+                        <span className="text-slate-400">Инфобаза:</span>
                         <div className="flex items-center gap-2">
                             <span className="text-slate-200">{event.databaseName}</span>
                             <button 
                                 onClick={() => { setFilterValue('database', event.databaseName || ''); onClose(); }}
                                 className="opacity-0 group-hover:opacity-100 p-1 hover:bg-white/10 rounded text-indigo-300"
-                                title="Фильтровать по БД"
+                                title="Фильтровать по инфобазе"
                             >
                                 <Filter size={12} />
                             </button>

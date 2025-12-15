@@ -5,6 +5,7 @@ import { Button } from '../../components/ui/Button';
 import { Input } from '../../components/ui/Input';
 import { Select } from '../../components/ui/Select';
 import { DatabaseSelection } from './DatabaseSelection';
+import { useToast } from '../../hooks/useToast';
 
 interface ClientModalProps {
   isOpen: boolean;
@@ -21,13 +22,13 @@ export const ClientModal: React.FC<ClientModalProps> = ({
   onSave,
   clients
 }) => {
-  const [modalTab, setModalTab] = useState<'info' | 'databases'>('info');
+  const toast = useToast();
   const [formData, setFormData] = useState({
     name: '',
     maxSessions: 10,
     status: 'active' as Client['status']
   });
-  const [manualDbInput, setManualDbInput] = useState('');
+  const [selectedDbNames, setSelectedDbNames] = useState<string[]>([]);
 
   useEffect(() => {
     if (isOpen) {
@@ -37,28 +38,30 @@ export const ClientModal: React.FC<ClientModalProps> = ({
           maxSessions: editingClient.maxSessions,
           status: editingClient.status
         });
-        setManualDbInput(editingClient.databases.map(d => d.name).join(', '));
+        setSelectedDbNames(editingClient.databases.map(d => d.name));
       } else {
         setFormData({
           name: '',
           maxSessions: 10,
           status: 'active'
         });
-        setManualDbInput('');
+        setSelectedDbNames([]);
       }
-      setModalTab('info');
     }
   }, [isOpen, editingClient]);
 
   const handleSubmit = (e?: React.FormEvent) => {
     if (e) e.preventDefault();
     
-    const dbNames: string[] = manualDbInput
-        .split(/[\n,]+/) 
-        .map(s => s.trim())
-        .filter(s => s !== '');
+    const name = (formData.name || '').trim();
+    if (!name) {
+      toast.warning({ title: 'Проверьте поля', message: 'Укажите название клиента.' });
+      return;
+    }
 
-    const uniqueDbNames: string[] = Array.from(new Set<string>(dbNames));
+    const uniqueDbNames: string[] = Array.from(
+      new Set<string>(selectedDbNames.map(s => s.trim()).filter(Boolean))
+    );
 
     // Conflict check
     const conflictingDbs: string[] = [];
@@ -74,7 +77,10 @@ export const ClientModal: React.FC<ClientModalProps> = ({
     });
 
     if (conflictingDbs.length > 0) {
-      alert(`Следующие базы данных уже привязаны к другим клиентам:\n${conflictingDbs.join(', ')}\n\nКаждая база может быть привязана только к одному клиенту.`);
+      toast.error({
+        title: 'Конфликт привязки',
+        message: `Следующие базы уже привязаны к другим клиентам:\n${conflictingDbs.join(', ')}\n\nКаждая база может быть привязана только к одному клиенту.`
+      });
       return;
     }
 
@@ -89,7 +95,7 @@ export const ClientModal: React.FC<ClientModalProps> = ({
     const totalActive = newDatabases.reduce((sum, db) => sum + db.activeSessions, 0);
 
     const clientData = {
-      name: formData.name,
+      name,
       maxSessions: formData.maxSessions,
       status: formData.status,
       databases: newDatabases,
@@ -117,72 +123,51 @@ export const ClientModal: React.FC<ClientModalProps> = ({
       size="lg"
       footer={footer}
     >
-      <div className="flex border-b mb-6 border-white/10 bg-transparent">
-        <button
-          onClick={() => setModalTab('info')}
-          className={`px-6 py-3 text-sm font-medium transition-colors ${
-            modalTab === 'info'
-              ? 'text-indigo-200 border-b-2 border-indigo-600 bg-transparent'
-              : 'text-slate-300 hover:text-slate-100'
-          }`}
-        >
-          Основная информация
-        </button>
-        <button
-          onClick={() => setModalTab('databases')}
-          className={`px-6 py-3 text-sm font-medium transition-colors ${
-            modalTab === 'databases'
-              ? 'text-indigo-200 border-b-2 border-indigo-600 bg-transparent'
-              : 'text-slate-300 hover:text-slate-100'
-          }`}
-        >
-          Базы данных
-        </button>
-      </div>
-
       <form id="clientForm" onSubmit={handleSubmit} className="space-y-6">
-        {modalTab === 'info' ? (
-          <>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <Input
-                label="Название организации"
-                value={formData.name}
-                onChange={e => setFormData({...formData, name: e.target.value})}
-                required
-                placeholder='ООО "Вектор"'
-              />
-              
-              <div>
-                 <Input
-                    label="Лимит сеансов (0 = Безлимит)"
-                    type="number"
-                    min="0"
-                    value={formData.maxSessions}
-                    onChange={e => setFormData({...formData, maxSessions: parseInt(e.target.value) || 0})}
-                    required
-                 />
-              </div>
-            </div>
-
-            <Select
-              label="Статус"
-              value={formData.status}
-              onChange={e => setFormData({...formData, status: e.target.value as Client['status']})}
-              options={[
-                { value: 'active', label: 'Активен' },
-                { value: 'warning', label: 'Внимание (Warning)' },
-                { value: 'blocked', label: 'Заблокирован' }
-              ]}
-            />
-          </>
-        ) : (
-          <DatabaseSelection 
-            manualDbInput={manualDbInput}
-            setManualDbInput={setManualDbInput}
-            clients={clients}
-            editingClient={editingClient}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <Input
+            label="Название клиента"
+            value={formData.name}
+            onChange={e => setFormData({ ...formData, name: e.target.value })}
+            required
+            placeholder='ООО "Вектор"'
           />
-        )}
+
+          <Input
+            label="Лимит сеансов (0 = Безлимит)"
+            type="number"
+            min="0"
+            value={formData.maxSessions}
+            onChange={e => setFormData({ ...formData, maxSessions: parseInt(e.target.value) || 0 })}
+            required
+          />
+        </div>
+
+        <Select
+          label="Статус"
+          value={formData.status}
+          onChange={e => setFormData({ ...formData, status: e.target.value as Client['status'] })}
+          options={[
+            { value: 'active', label: 'Активен' },
+            { value: 'warning', label: 'Внимание' },
+            { value: 'blocked', label: 'Заблокирован' }
+          ]}
+        />
+
+        <div className="pt-2">
+          <div className="text-sm font-semibold text-slate-50">Инфобазы</div>
+          <div className="text-xs text-slate-400 mt-1">
+            Выберите инфобазы из списка агента. Каждая инфобаза может быть привязана только к одному клиенту.
+          </div>
+          <div className="mt-3">
+            <DatabaseSelection
+              selectedDbNames={selectedDbNames}
+              setSelectedDbNames={setSelectedDbNames}
+              clients={clients}
+              editingClient={editingClient}
+            />
+          </div>
+        </div>
       </form>
     </Modal>
   );

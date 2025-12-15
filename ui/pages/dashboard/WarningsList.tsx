@@ -29,7 +29,19 @@ export const WarningsList: React.FC<WarningsListProps> = ({ warnings }) => {
           </div>
         ) : (
           warnings.slice(0, 8).map(w => (
-            <div key={w.id} className="px-5 py-3 flex items-center gap-3">
+            <button
+              key={w.id}
+              type="button"
+              className="w-full text-left px-5 py-3 flex items-center gap-3 hover:bg-white/5 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400/50"
+              onClick={() => {
+                const isOver = w.status === 'blocked' || (w.utilization ?? 0) >= 100;
+                const qp = new URLSearchParams();
+                qp.set('clientId', w.id);
+                qp.set('ops', isOver ? 'over' : 'risk');
+                window.location.hash = `#/clients?${qp.toString()}`;
+              }}
+              title="Открыть детали клиента"
+            >
               <span className={`w-2 h-2 rounded-full ${w.status === 'blocked' || (w.utilization ?? 0) >= 100 ? 'bg-rose-400' : 'bg-amber-400'}`} />
               <div className="min-w-0 flex-1">
                 <div className="text-sm font-semibold text-slate-50 truncate">{w.name}</div>
@@ -37,7 +49,7 @@ export const WarningsList: React.FC<WarningsListProps> = ({ warnings }) => {
               </div>
               <div className="text-xs font-mono text-slate-300">{w.activeSessions}/{w.maxSessions}</div>
               <div className="text-xs font-semibold text-slate-200">{w.utilization}%</div>
-            </div>
+            </button>
           ))
         )}
       </div>

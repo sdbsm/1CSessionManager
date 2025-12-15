@@ -9,14 +9,47 @@ import {
   ChevronLeft,
   ChevronRight
 } from 'lucide-react';
+import { Client } from '../types';
+import { TimeRange } from '../hooks/useTimeRange';
+import { Badge } from './ui/Badge';
+import { useSetupStatus } from '../hooks/useSetupStatus';
+import { useSidebarEventsSummary } from '../hooks/useSidebarEventsSummary';
 
 interface SidebarProps {
   activeRoute: string;
   onNavigate: (route: string) => void;
+  clients: Client[];
+  timeRange: TimeRange;
+  onOpenCommandPalette?: () => void;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ activeRoute, onNavigate }) => {
+const Sidebar: React.FC<SidebarProps> = ({ activeRoute, onNavigate, clients, timeRange, onOpenCommandPalette }) => {
   const [collapsed, setCollapsed] = React.useState(false);
+  const setup = useSetupStatus();
+  const lastSeen = React.useMemo(() => {
+    try {
+      return localStorage.getItem('ui.events.lastSeenUtc');
+    } catch {
+      return null;
+    }
+  }, [activeRoute]);
+  const eventsSummary = useSidebarEventsSummary(timeRange, lastSeen);
+
+  const clientOverOrBlocked = React.useMemo(() => {
+    return clients.filter(c => c.status === 'blocked' || (c.maxSessions > 0 && c.activeSessions >= c.maxSessions)).length;
+  }, [clients]);
+
+  const clientRisk = React.useMemo(() => {
+    return clients.filter(c => c.maxSessions > 0 && c.activeSessions < c.maxSessions && (c.activeSessions / c.maxSessions) >= 0.8).length;
+  }, [clients]);
+
+  const setupMissing = React.useMemo(() => {
+    let n = 0;
+    if (setup.dbEndpointStatus === 'not_set') n++;
+    if (setup.sqlLoginStatus === 'not_set') n++;
+    if (setup.apiKeyStatus === 'not_set') n++;
+    return n;
+  }, [setup.dbEndpointStatus, setup.sqlLoginStatus, setup.apiKeyStatus]);
 
   const menuItems: Array<{ id: string; label: string; icon: any; hint?: string }> = [
     { id: 'status', label: 'Обзор', icon: Gauge, hint: 'Состояние и активные проблемы' },
@@ -24,6 +57,24 @@ const Sidebar: React.FC<SidebarProps> = ({ activeRoute, onNavigate }) => {
     { id: 'clients', label: 'Клиенты', icon: Users, hint: 'Квоты, инфобазы, лимиты' },
     { id: 'settings', label: 'Настройки', icon: SettingsIcon, hint: 'Интеграции и политика' },
   ];
+
+  const badgeFor = (id: string) => {
+    if (id === 'events') {
+      if (eventsSummary.critical > 0) return <Badge variant="danger" size="sm">{eventsSummary.critical}</Badge>;
+      if (eventsSummary.warning > 0) return <Badge variant="warning" size="sm">{eventsSummary.warning}</Badge>;
+      return null;
+    }
+    if (id === 'clients') {
+      if (clientOverOrBlocked > 0) return <Badge variant="danger" size="sm">{clientOverOrBlocked}</Badge>;
+      if (clientRisk > 0) return <Badge variant="warning" size="sm">{clientRisk}</Badge>;
+      return null;
+    }
+    if (id === 'settings') {
+      if (setupMissing > 0) return <Badge variant="warning" size="sm">{setupMissing}</Badge>;
+      return null;
+    }
+    return null;
+  };
 
   return (
     <div className={`${collapsed ? 'w-[76px]' : 'w-72'} bg-slate-950 h-screen flex flex-col text-white flex-shrink-0 border-r border-white/10`}>
@@ -59,13 +110,76 @@ const Sidebar: React.FC<SidebarProps> = ({ activeRoute, onNavigate }) => {
             }`}
             title={collapsed ? item.label : item.hint}
           >
-            <item.icon size={20} />
-            {!collapsed && <span className="font-medium text-sm">{item.label}</span>}
+            <div className="relative">
+              <item.icon size={20} />
+              {collapsed && (
+                <div className="absolute -top-2 -right-2">
+                  {badgeFor(item.id)}
+                </div>
+              )}
+            </div>
+            {!collapsed && (
+              <>
+                <span className="font-medium text-sm">{item.label}</span>
+                <div className="ml-auto">
+                  <div className="flex items-center gap-2">
+                    {item.id === 'events' && activeRoute !== 'events' && eventsSummary.newCount > 0 ? (
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-sky-500/10 text-sky-200 ring-1 ring-sky-500/20">
+                        +{eventsSummary.newCount}
+                      </span>
+                    ) : null}
+                    {badgeFor(item.id)}
+                  </div>
+                </div>
+              </>
+            )}
           </button>
         ))}
       </nav>
 
       <div className={`${collapsed ? 'p-2' : 'p-4'} border-t border-white/10`}>
+        {!collapsed && (
+          <div className="bg-white/5 p-4 rounded-lg mb-3">
+            <p className="text-xs text-slate-400 mb-2">Быстрые действия</p>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                className="text-xs px-3 py-2 rounded-md bg-white/5 hover:bg-white/10 border border-white/10 text-slate-200 transition-colors"
+                onClick={() => {
+                  if (onOpenCommandPalette) onOpenCommandPalette();
+                }}
+                title="Открыть глобальный поиск (Ctrl+K)"
+              >
+                Поиск (Ctrl+K)
+              </button>
+              <button
+                type="button"
+                className="text-xs px-3 py-2 rounded-md bg-white/5 hover:bg-white/10 border border-white/10 text-slate-200 transition-colors"
+                onClick={() => { window.location.hash = '#/events?levels=critical,warning'; }}
+                title="Открыть журнал событий (critical+warning)"
+              >
+                События (warn+)
+              </button>
+              <button
+                type="button"
+                className="text-xs px-3 py-2 rounded-md bg-white/5 hover:bg-white/10 border border-white/10 text-slate-200 transition-colors"
+                onClick={() => { window.location.hash = '#/clients?ops=over'; }}
+                title="Клиенты: перелимит или блокировка"
+              >
+                Клиенты (перелимит)
+              </button>
+              <button
+                type="button"
+                className="text-xs px-3 py-2 rounded-md bg-white/5 hover:bg-white/10 border border-white/10 text-slate-200 transition-colors"
+                onClick={() => { window.location.hash = '#/clients?ops=risk'; }}
+                title="Клиенты: в риске (≥80%)"
+              >
+                Клиенты (в риске)
+              </button>
+            </div>
+          </div>
+        )}
+
         <div className={`bg-white/5 p-4 rounded-lg mb-3 ${collapsed ? 'hidden' : ''}`}>
           <p className="text-xs text-slate-400 mb-1">Служба</p>
           <div className="flex items-center gap-2">

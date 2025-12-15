@@ -19,10 +19,10 @@ export const HealthStatus: React.FC<HealthStatusProps> = ({
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-4 gap-3">
-      <HealthPill label="Control API" status={apiHealth === 'ok' ? 'ok' : 'unknown'} hint="Доступность сервиса управления" />
+      <HealthPill label="API управления" status={apiHealth === 'ok' ? 'ok' : 'unknown'} hint="Доступность сервиса управления" />
       <HealthPill label="Кластер 1С" status={clusterHealth} hint={stats?.clusterStatus === 'online' ? 'RAC/RAS доступны' : 'Проверьте RAS host / учётку / rac.exe'} />
-      <HealthPill label="DB endpoint" status={dbEndpointStatus === 'set' ? 'ok' : dbEndpointStatus === 'not_set' ? 'warn' : 'unknown'} hint="SQL Server + Database (Credential Manager)" />
-      <HealthPill label="SQL login" status={sqlLoginStatus === 'set' ? 'ok' : sqlLoginStatus === 'not_set' ? 'warn' : 'unknown'} hint="Учетка SQL (Credential Manager)" />
+      <HealthPill label="Хранилище (SQL)" status={dbEndpointStatus === 'set' ? 'ok' : dbEndpointStatus === 'not_set' ? 'warn' : 'unknown'} hint="SQL Server + база (Windows Credential Manager)" />
+      <HealthPill label="SQL учётка" status={sqlLoginStatus === 'set' ? 'ok' : sqlLoginStatus === 'not_set' ? 'warn' : 'unknown'} hint="SQL учётные данные (Windows Credential Manager)" />
     </div>
   );
 };

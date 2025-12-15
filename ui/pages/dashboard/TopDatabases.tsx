@@ -12,7 +12,7 @@ export const TopDatabases: React.FC<TopDatabasesProps> = ({ databases }) => {
       <div className="bg-slate-900 rounded-lg p-6 border border-slate-800 h-full">
         <h3 className="text-lg font-medium text-slate-100 mb-4 flex items-center gap-2">
           <Database className="h-5 w-5 text-blue-500" />
-          Крупнейшие базы данных
+          Крупнейшие инфобазы
         </h3>
         <div className="text-slate-500 text-sm text-center py-8">
           Нет данных о размере баз (проверьте подключение к SQL)
@@ -25,13 +25,24 @@ export const TopDatabases: React.FC<TopDatabasesProps> = ({ databases }) => {
     <div className="bg-slate-900 rounded-lg p-6 border border-slate-800 h-full flex flex-col">
       <h3 className="text-lg font-medium text-slate-100 mb-4 flex items-center gap-2">
         <Database className="h-5 w-5 text-blue-500" />
-        Крупнейшие базы данных
+        Крупнейшие инфобазы
       </h3>
       
       <div className="flex-1 overflow-auto">
         <div className="space-y-3">
           {databases.map((db) => (
-            <div key={db.name} className="flex items-center justify-between p-3 rounded-md bg-slate-800/50 border border-slate-800">
+            <button
+              key={db.name}
+              type="button"
+              className="w-full text-left flex items-center justify-between p-3 rounded-md bg-slate-800/50 border border-slate-800 hover:bg-slate-800/70 hover:border-slate-700 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400/50"
+              onClick={() => {
+                const qp = new URLSearchParams();
+                qp.set('levels', 'critical,warning');
+                qp.set('database', db.name);
+                window.location.hash = `#/events?${qp.toString()}`;
+              }}
+              title="Открыть события по инфобазе (warn+)"
+            >
               <div className="flex flex-col min-w-0 flex-1 mr-4">
                 <span className="text-sm font-medium text-slate-200 truncate" title={db.name}>
                   {db.name}
@@ -50,7 +61,7 @@ export const TopDatabases: React.FC<TopDatabasesProps> = ({ databases }) => {
                     : `${Math.round(db.sizeMB)} MB`}
                 </div>
               </div>
-            </div>
+            </button>
           ))}
         </div>
       </div>

@@ -37,6 +37,7 @@ export const StatsOverview: React.FC<StatsOverviewProps> = ({
           : (fallbackClientLimit > 0 ? `${totalSessions} / ${fallbackClientLimit} (лимит по клиентам)` : `${totalSessions} (лимит не задан)`)}
         icon={Activity}
         color={utilizationRate >= 90 ? 'orange' : utilizationRate >= 75 ? 'blue' : 'green'}
+        hrefHash="#/events?levels=critical,warning"
       />
       <StatCard
         title="Активные клиенты"
@@ -44,6 +45,7 @@ export const StatsOverview: React.FC<StatsOverviewProps> = ({
         description={`Из ${totalClientsCount}`}
         icon={Users}
         color="blue"
+        hrefHash="#/clients"
       />
       <StatCard
         title="Предупреждения по квотам"
@@ -51,6 +53,7 @@ export const StatsOverview: React.FC<StatsOverviewProps> = ({
         description="80%+ или блокировка"
         icon={AlertTriangle}
         color={warningsCount > 0 ? 'orange' : 'green'}
+        hrefHash={warningsCount > 0 ? '#/clients?ops=risk' : '#/clients'}
       />
       <StatCard
         title="Кластер 1С"
@@ -58,6 +61,7 @@ export const StatsOverview: React.FC<StatsOverviewProps> = ({
         description="Доступность RAC/RAS"
         icon={Server}
         color={clusterStatus === 'online' ? 'green' : clusterStatus === 'offline' ? 'red' : 'blue'}
+        hrefHash={clusterStatus === 'offline' ? '#/events?levels=critical,warning&q=cluster' : '#/settings'}
       />
     </div>
   );

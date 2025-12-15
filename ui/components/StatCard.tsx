@@ -9,6 +9,8 @@ interface StatCardProps {
   trend?: 'up' | 'down' | 'neutral';
   trendValue?: string;
   color?: 'blue' | 'green' | 'red' | 'orange';
+  onClick?: () => void;
+  hrefHash?: string;
 }
 
 const StatCard: React.FC<StatCardProps> = ({ 
@@ -18,7 +20,9 @@ const StatCard: React.FC<StatCardProps> = ({
   icon: Icon, 
   trend, 
   trendValue,
-  color = 'blue' 
+  color = 'blue',
+  onClick,
+  hrefHash
 }) => {
   const colorClasses = {
     blue: 'bg-blue-500/10 text-blue-200 ring-1 ring-blue-500/20',
@@ -27,8 +31,29 @@ const StatCard: React.FC<StatCardProps> = ({
     orange: 'bg-amber-500/10 text-amber-200 ring-1 ring-amber-500/20',
   };
 
+  const clickable = !!onClick || !!hrefHash;
+
+  const handle = () => {
+    if (onClick) return onClick();
+    if (hrefHash) window.location.hash = hrefHash;
+  };
+
   return (
-    <div className="rounded-xl border border-white/10 bg-slate-950/40 p-6 shadow-sm hover:shadow-panel transition-shadow duration-300">
+    <div
+      className={`rounded-xl border border-white/10 bg-slate-950/40 p-6 shadow-sm hover:shadow-panel transition-shadow duration-300 ${
+        clickable ? 'cursor-pointer hover:bg-white/5' : ''
+      }`}
+      onClick={clickable ? handle : undefined}
+      role={clickable ? 'button' : undefined}
+      tabIndex={clickable ? 0 : undefined}
+      onKeyDown={clickable ? (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          handle();
+        }
+      } : undefined}
+      title={clickable ? 'Открыть детали' : undefined}
+    >
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-sm font-medium text-slate-300">{title}</h3>
         <div className={`p-2 rounded-lg ${colorClasses[color]}`}>

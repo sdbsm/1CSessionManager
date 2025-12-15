@@ -2,6 +2,8 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import { SystemEvent, AlertLevel } from '../types';
 import { apiFetch, apiFetchJson } from '../services/apiClient';
 import { TimeRange } from './useTimeRange';
+import { useToast } from './useToast';
+import { loadUiPrefs } from './useUiPrefs';
 
 export type SortField = 'timestamp' | 'level';
 export type SortDirection = 'asc' | 'desc';
@@ -14,6 +16,13 @@ function parseHashQuery(): URLSearchParams {
 }
 
 function setHashQuery(next: URLSearchParams) {
+  // Preserve non-filter meta params (e.g. return link) so they don't get wiped on every filter change.
+  const current = parseHashQuery();
+  const preserveKeys = ['return', 'view', 'groupBy', 'sv', 'bucketFrom', 'bucketTo'];
+  for (const k of preserveKeys) {
+    const v = current.get(k);
+    if (v && !next.has(k)) next.set(k, v);
+  }
   const [path] = (window.location.hash || '#/events').split('?');
   const qs = next.toString();
   window.location.hash = qs ? `${path}?${qs}` : path;
@@ -38,7 +47,10 @@ export interface EventsFilters {
   user: string;
 }
 
+export type EventsPresetId = 'all' | 'critical' | 'warning' | 'cluster' | 'sql';
+
 export function useEvents(timeRange: TimeRange) {
+  const toast = useToast();
   // State for filters
   const [filters, setFilters] = useState<EventsFilters>(() => {
     const qp = parseHashQuery();
@@ -68,7 +80,7 @@ export function useEvents(timeRange: TimeRange) {
   const [loading, setLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastUpdate, setLastUpdate] = useState<Date>(new Date(0));
-  const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(true);
+  const [autoRefreshEnabled, setAutoRefreshEnabled] = useState<boolean>(() => loadUiPrefs().autoRefreshDefault);
 
   // Sorting
   const [sortField, setSortField] = useState<SortField>('timestamp');
@@ -163,6 +175,17 @@ export function useEvents(timeRange: TimeRange) {
     setFilters(prev => ({ ...prev, [key]: value }));
   };
 
+  const setFiltersAll = (next: EventsFilters) => {
+    const levels = next.levels && next.levels.size ? next.levels : new Set([AlertLevel.CRITICAL, AlertLevel.WARNING, AlertLevel.INFO]);
+    setFilters({
+      levels,
+      search: next.search || '',
+      clientId: next.clientId || '',
+      database: next.database || '',
+      user: next.user || ''
+    });
+  };
+
   const clearFilters = () => {
     setFilters({
       levels: new Set([AlertLevel.CRITICAL, AlertLevel.WARNING, AlertLevel.INFO]),
@@ -173,15 +196,48 @@ export function useEvents(timeRange: TimeRange) {
     });
   };
 
+  const applyPreset = (preset: EventsPresetId) => {
+    setFilters(prev => {
+      const base: EventsFilters = {
+        levels: new Set([AlertLevel.CRITICAL, AlertLevel.WARNING, AlertLevel.INFO]),
+        search: '',
+        clientId: '',
+        database: '',
+        user: ''
+      };
+
+      switch (preset) {
+        case 'critical':
+          base.levels = new Set([AlertLevel.CRITICAL]);
+          return base;
+        case 'warning':
+          base.levels = new Set([AlertLevel.WARNING]);
+          return base;
+        case 'cluster':
+          base.levels = new Set([AlertLevel.CRITICAL, AlertLevel.WARNING]);
+          base.search = 'cluster';
+          return base;
+        case 'sql':
+          base.levels = new Set([AlertLevel.CRITICAL, AlertLevel.WARNING]);
+          base.search = 'sql';
+          return base;
+        case 'all':
+        default:
+          // Preserve nothing; full reset (including levels)
+          return base;
+      }
+    });
+  };
+
   const handleClearEvents = async () => {
-    if (!window.confirm('Очистить все события? Это действие необратимо.')) return;
     try {
       const res = await apiFetch('/api/events', { method: 'DELETE' });
       if (!res.ok) throw new Error(await res.text());
       await fetchEvents();
+      toast.success({ title: 'Готово', message: 'События очищены.' });
     } catch (e) {
       console.error('Error clearing events:', e);
-      alert('Ошибка при очистке событий');
+      toast.error({ title: 'Ошибка', message: 'Не удалось очистить события.' });
     }
   };
 
@@ -204,8 +260,10 @@ export function useEvents(timeRange: TimeRange) {
     refresh: fetchEvents,
     filters,
     setFilterValue,
+    setFiltersAll,
     toggleLevel,
     clearFilters,
+    applyPreset,
     levelStats,
     sortField,
     sortDirection,

@@ -204,11 +204,54 @@ public sealed class AgentDataStore(IDbContextFactory<AppDbContext> dbFactory) : 
         var cmd = await db.AgentCommands.FirstOrDefaultAsync(x => x.Id == commandId, ct);
         if (cmd != null)
         {
+            var now = DateTime.UtcNow;
             cmd.Status = status;
             cmd.ErrorMessage = errorMessage;
-            cmd.ProcessedAtUtc = DateTime.UtcNow;
+            cmd.LastUpdatedAtUtc = now;
+
+            if (status == "Processing")
+            {
+                cmd.StartedAtUtc ??= now;
+                cmd.ProcessedAtUtc = null;
+                cmd.ProgressPercent ??= 0;
+            }
+            else if (status == "Completed")
+            {
+                cmd.ProgressPercent = 100;
+                cmd.ProgressMessage ??= "Готово";
+                cmd.ProcessedAtUtc = now;
+            }
+            else if (status == "Failed")
+            {
+                cmd.ProgressMessage ??= "Ошибка";
+                cmd.ProcessedAtUtc = now;
+            }
             await db.SaveChangesAsync(ct);
         }
+    }
+
+    public async Task UpdateCommandProgressAsync(Guid commandId, int? progressPercent, string? progressMessage, CancellationToken ct)
+    {
+        await using var db = await dbFactory.CreateDbContextAsync(ct);
+        var cmd = await db.AgentCommands.FirstOrDefaultAsync(x => x.Id == commandId, ct);
+        if (cmd == null) return;
+
+        var now = DateTime.UtcNow;
+        cmd.LastUpdatedAtUtc = now;
+
+        if (progressPercent.HasValue)
+        {
+            var p = Math.Clamp(progressPercent.Value, 0, 100);
+            cmd.ProgressPercent = p;
+            if (p > 0) cmd.StartedAtUtc ??= now;
+        }
+
+        if (!string.IsNullOrWhiteSpace(progressMessage))
+        {
+            cmd.ProgressMessage = progressMessage.Trim();
+        }
+
+        await db.SaveChangesAsync(ct);
     }
 
     public async Task UpdateAgentMetadataAsync(Guid agentId, List<string> installedVersions, List<OneCPublication> publications, CancellationToken ct)

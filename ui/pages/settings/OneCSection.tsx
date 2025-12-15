@@ -13,6 +13,7 @@ interface OneCSectionProps {
   onSave: () => void;
   saving: boolean;
   onTest: (settings: AppSettings) => Promise<{ success: boolean; message: string }>;
+  errors?: Partial<Record<keyof AppSettings, string>>;
 }
 
 export const OneCSection: React.FC<OneCSectionProps> = ({
@@ -20,7 +21,8 @@ export const OneCSection: React.FC<OneCSectionProps> = ({
   onChange,
   onSave,
   saving,
-  onTest
+  onTest,
+  errors
 }) => {
   const versions = settings.installedVersionsJson ? JSON.parse(settings.installedVersionsJson) as string[] : [];
   
@@ -70,6 +72,7 @@ export const OneCSection: React.FC<OneCSectionProps> = ({
                                 { value: '', label: '-- Выберите версию (авто-настройка) --' },
                                 ...versions.map(v => ({ value: v, label: v }))
                             ]}
+                            error={errors?.defaultOneCVersion}
                         />
                     </div>
                     <div className="w-[200px]">
@@ -79,6 +82,7 @@ export const OneCSection: React.FC<OneCSectionProps> = ({
                             onChange={e => onChange('rasHost', e.target.value)} 
                             placeholder="localhost:1545"
                             className="bg-transparent"
+                            error={errors?.rasHost}
                         />
                     </div>
                 </div>
@@ -105,7 +109,8 @@ export const OneCSection: React.FC<OneCSectionProps> = ({
                     label="Интервал проверки (сек)" 
                     type="number"
                     value={settings.checkInterval} 
-                    onChange={e => onChange('checkInterval', parseInt(e.target.value))} 
+                    onChange={e => onChange('checkInterval', parseInt(e.target.value) || 0)} 
+                    error={errors?.checkInterval}
                 />
                 <div className="md:col-span-2">
                     <Input 
@@ -113,6 +118,7 @@ export const OneCSection: React.FC<OneCSectionProps> = ({
                         value={settings.racPath} 
                         onChange={e => onChange('racPath', e.target.value)} 
                         className="font-mono text-sm"
+                        error={errors?.racPath}
                     />
                 </div>
             </>
@@ -123,6 +129,7 @@ export const OneCSection: React.FC<OneCSectionProps> = ({
             value={settings.clusterUser} 
             onChange={e => onChange('clusterUser', e.target.value)} 
             placeholder="Administrator"
+            error={errors?.clusterUser}
         />
         <Input 
             label="Пароль администратора" 

@@ -13,13 +13,14 @@ type RouteId = 'status' | 'events' | 'clients' | 'settings';
 function getRouteFromHash(): RouteId {
   const raw = (window.location.hash || '').replace(/^#/, '');
   const path = raw.startsWith('/') ? raw.slice(1) : raw;
-  const route = (path.split('?')[0] || '').trim();
-  switch (route) {
+  const pathPart = (path.split('?')[0] || '').trim();
+  const base = (pathPart.split('/')[0] || '').trim();
+  switch (base) {
     case 'events':
     case 'clients':
     case 'settings':
     case 'status':
-      return route;
+      return base;
     default:
       return 'status';
   }
@@ -33,7 +34,7 @@ function setRouteHash(route: RouteId) {
 const App: React.FC = () => {
   const [route, setRoute] = useState<RouteId>(() => getRouteFromHash());
   const { range: timeRange, preset: timePreset, setPreset: setTimePreset } = useTimeRange();
-  const { clients, loading, addClient, updateClient, deleteClient } = useClients();
+  const { clients, loading, isRefreshing, lastUpdate, fetchClients, addClient, updateClient, deleteClient } = useClients();
 
   // Hash routing
   useEffect(() => {
@@ -43,6 +44,8 @@ const App: React.FC = () => {
     if (!window.location.hash) setRouteHash('status');
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
+
+  // NOTE: "read/unread" for events is controlled by Events UI ("Mark as read"), not by just visiting the page.
 
   const renderContent = () => {
     if (loading && clients.length === 0) {
@@ -61,6 +64,9 @@ const App: React.FC = () => {
             onAdd={addClient}
             onUpdate={updateClient}
             onDelete={deleteClient}
+            lastUpdate={lastUpdate}
+            isRefreshing={isRefreshing}
+            onRefresh={fetchClients}
           />
         );
       case 'settings':
@@ -76,6 +82,8 @@ const App: React.FC = () => {
     <MainLayout
       activeRoute={route}
       onNavigate={(r) => setRouteHash(r as RouteId)}
+      clients={clients}
+      timeRange={timeRange}
     >
       {renderContent()}
     </MainLayout>

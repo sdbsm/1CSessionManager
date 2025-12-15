@@ -2,12 +2,15 @@ import React from 'react';
 import { FileText, XCircle } from 'lucide-react';
 import { SystemEvent } from '../../types';
 import { SeverityBadge } from '../../components/shared/SeverityBadge';
+import { useUiPrefs } from '../../hooks/useUiPrefs';
+import { formatEventTimestamp } from '../../utils/time';
 
 interface RecentEventsProps {
   events: SystemEvent[];
 }
 
 export const RecentEvents: React.FC<RecentEventsProps> = ({ events }) => {
+  const { prefs } = useUiPrefs();
   return (
     <div className="rounded-xl border border-white/10 bg-slate-950/40 overflow-hidden">
       <div className="px-5 py-4 border-b border-white/10 flex items-center justify-between">
@@ -30,6 +33,9 @@ export const RecentEvents: React.FC<RecentEventsProps> = ({ events }) => {
           </div>
         ) : (
           events.slice(0, 10).map(ev => (
+            (() => {
+              const ts = formatEventTimestamp(ev, prefs.timeFormat);
+              return (
             <div
               key={ev.id}
               className="px-5 py-3 hover:bg-white/5 transition-colors cursor-pointer"
@@ -46,7 +52,7 @@ export const RecentEvents: React.FC<RecentEventsProps> = ({ events }) => {
                 <div className="min-w-0 flex-1">
                   <div className="text-sm text-slate-100 truncate">{ev.message}</div>
                   <div className="text-xs text-slate-400 truncate">
-                    {(ev.timestampLocal || ev.timestampUtc || ev.timestamp || '').toString()}
+                    <span title={ts.title || undefined}>{ts.text}</span>
                     {ev.clientName ? ` · ${ev.clientName}` : ''}
                     {ev.databaseName ? ` · ${ev.databaseName}` : ''}
                     {ev.userName ? ` · ${ev.userName}` : ''}
@@ -54,6 +60,8 @@ export const RecentEvents: React.FC<RecentEventsProps> = ({ events }) => {
                 </div>
               </div>
             </div>
+              );
+            })()
           ))
         )}
       </div>
