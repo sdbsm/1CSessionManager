@@ -1,24 +1,8 @@
 
-export enum ConnectionType {
-  RDP = 'RDP',
-  THIN_CLIENT = 'ThinClient',
-  WEB_CLIENT = 'WebClient'
-}
-
 export enum AlertLevel {
   INFO = 'info',
   WARNING = 'warning',
   CRITICAL = 'critical'
-}
-
-export interface Session {
-  id: string;
-  userName: string;
-  computerName: string;
-  startedAt: string;
-  appId: string; // e.g., "1CV8C", "Designer"
-  isLicenseConsumer: boolean;
-  databaseName: string;
 }
 
 export interface ClientDatabase {
@@ -38,10 +22,28 @@ export interface Client {
 
 export interface SystemEvent {
   id: string;
-  timestamp: string;
+  /**
+   * UTC timestamp in ISO-8601 format (recommended for sorting/filtering).
+   * Example: 2025-12-14T18:22:12.123Z
+   */
+  timestampUtc?: string;
+  /**
+   * Human-friendly local timestamp formatted by backend (ru-RU).
+   * Example: 14.12.2025, 21:22:12
+   */
+  timestampLocal?: string;
+  /**
+   * Backward-compat field (older API used `timestamp`).
+   * New API may omit it; UI should prefer `timestampUtc`/`timestampLocal`.
+   */
+  timestamp?: string;
   level: AlertLevel;
   message: string;
   clientId?: string;
+  clientName?: string;
+  databaseName?: string;
+  sessionId?: string;
+  userName?: string;
 }
 
 export interface AppSettings {
@@ -51,20 +53,4 @@ export interface AppSettings {
   clusterPass: string;
   checkInterval: number;
   killMode: boolean;
-  // Optional future fields
-  emailSmtpHost?: string;
-  telegramBotToken?: string;
-  // MSSQL Integration
-  mssqlEnabled?: boolean;
-  mssqlServer?: string;
-  mssqlPort?: number;
-  mssqlDatabase?: string;
-  mssqlUser?: string;
-  mssqlPassword?: string;
-}
-
-export interface AIAnalysisResult {
-  summary: string;
-  recommendations: string[];
-  trend: 'up' | 'down' | 'stable';
 }

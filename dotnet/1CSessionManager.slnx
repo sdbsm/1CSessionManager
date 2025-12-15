@@ -1,7 +1,13 @@
 <Solution>
   <Folder Name="/src/">
     <Project Path="src/1CSessionManager.Agent/1CSessionManager.Agent.csproj" />
+    <Project Path="src/1CSessionManager.Agent.Application/1CSessionManager.Agent.Application.csproj" />
+    <Project Path="src/1CSessionManager.Agent.Infrastructure/1CSessionManager.Agent.Infrastructure.csproj" />
     <Project Path="src/1CSessionManager.Control/1CSessionManager.Control.csproj" />
+    <Project Path="src/1CSessionManager.Control.Application/1CSessionManager.Control.Application.csproj" />
+    <Project Path="src/1CSessionManager.Control.Infrastructure/1CSessionManager.Control.Infrastructure.csproj" />
+    <Project Path="src/1CSessionManager.Installer/1CSessionManager.Installer.csproj" />
     <Project Path="src/1CSessionManager.Shared/1CSessionManager.Shared.csproj" />
+    <Project Path="src/1CSessionManager.Shared.Persistence/1CSessionManager.Shared.Persistence.csproj" />
   </Folder>
 </Solution>

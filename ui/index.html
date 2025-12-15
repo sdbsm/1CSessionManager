@@ -1,30 +1,75 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html lang="ru" class="dark">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>1C Session Manager</title>
+    <script>
+      // Tailwind (CDN) runtime config.
+      // We intentionally use "class" dark-mode to allow user preference persistence.
+      window.tailwind = window.tailwind || {};
+      window.tailwind.config = {
+        darkMode: 'class',
+        theme: {
+          extend: {
+            boxShadow: {
+              panel: '0 1px 0 0 rgba(255,255,255,0.04), 0 0 0 1px rgba(255,255,255,0.06)',
+            }
+          }
+        }
+      };
+
+      // Theme bootstrap: force dark (ops-friendly).
+      // Light theme is not fully implemented yet; forcing dark prevents unreadable UI states.
+      try {
+        localStorage.setItem('ui.theme', 'dark');
+        document.documentElement.classList.add('dark');
+      } catch {
+        document.documentElement.classList.add('dark');
+      }
+    </script>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
       @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap');
       body {
         font-family: 'Inter', sans-serif;
-        background-color: #f8fafc;
+        background-color: #020617; /* slate-950 */
       }
+
+      /* --- Dark-mode form controls (prevents "white on white") --- */
+      input:not([type="checkbox"]):not([type="radio"]),
+      select,
+      textarea {
+        background-color: rgba(255, 255, 255, 0.05);
+        color: #e2e8f0; /* slate-200 */
+        border-color: rgba(255, 255, 255, 0.1);
+      }
+      input:not([type="checkbox"]):not([type="radio"])::placeholder,
+      textarea::placeholder {
+        color: rgba(148, 163, 184, 0.5); /* slate-400-ish */
+      }
+      input:not([type="checkbox"]):not([type="radio"]):focus,
+      select:focus,
+      textarea:focus {
+        outline: none;
+        border-color: rgba(99, 102, 241, 0.55); /* indigo */
+        box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.25);
+      }
+
       /* Custom Scrollbar */
       ::-webkit-scrollbar {
         width: 8px;
         height: 8px;
       }
       ::-webkit-scrollbar-track {
-        background: #f1f5f9;
+        background: rgba(148, 163, 184, 0.12);
       }
       ::-webkit-scrollbar-thumb {
-        background: #cbd5e1;
+        background: rgba(148, 163, 184, 0.35);
         border-radius: 4px;
       }
       ::-webkit-scrollbar-thumb:hover {
-        background: #94a3b8;
+        background: rgba(148, 163, 184, 0.55);
       }
     </style>
     <!-- Vite will inject the compiled script here during build -->

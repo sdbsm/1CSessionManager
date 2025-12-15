@@ -1,0 +1,116 @@
+using Microsoft.EntityFrameworkCore;
+using SessionManager.Control.Infrastructure.Agents;
+using SessionManager.Control.Services;
+using SessionManager.Shared.Data;
+using SessionManager.Shared.Data.Entities;
+using SessionManager.Shared.Security;
+
+namespace SessionManager.Control.Api.Endpoints;
+
+public static class AgentsEndpoints
+{
+    public static IEndpointRouteBuilder MapAgentsEndpoints(this IEndpointRouteBuilder endpoints)
+    {
+        // Agent settings (passwords are never returned)
+        endpoints.MapGet("/api/agent/settings", async (Guid agentId, IDbContextFactory<AppDbContext> dbFactory, CancellationToken ct) =>
+        {
+            await using var db = await dbFactory.CreateDbContextAsync(ct);
+            var agent = await db.Agents.FirstOrDefaultAsync(a => a.Id == agentId, ct);
+            if (agent is null) return Results.NotFound();
+
+            return Results.Ok(new AgentSettingsResponse(
+                AgentId: agent.Id,
+                Enabled: agent.Enabled,
+                RacPath: agent.RacPath,
+                RasHost: agent.RasHost,
+                ClusterUser: agent.ClusterUser,
+                ClusterPassIsSet: !string.IsNullOrWhiteSpace(agent.ClusterPassProtected),
+                KillModeEnabled: agent.KillModeEnabled,
+                PollIntervalSeconds: agent.PollIntervalSeconds
+            ));
+        });
+
+        endpoints.MapPost("/api/agent/settings", async (
+            Guid agentId,
+            AgentSettingsUpdateRequest req,
+            IDbContextFactory<AppDbContext> dbFactory,
+            SecretProtector protector,
+            CancellationToken ct) =>
+        {
+            await using var db = await dbFactory.CreateDbContextAsync(ct);
+            var agent = await db.Agents.FirstOrDefaultAsync(a => a.Id == agentId, ct);
+            if (agent is null) return Results.NotFound();
+
+            if (req.Enabled is not null) agent.Enabled = req.Enabled.Value;
+            if (!string.IsNullOrWhiteSpace(req.RacPath)) agent.RacPath = req.RacPath.Trim();
+            if (!string.IsNullOrWhiteSpace(req.RasHost)) agent.RasHost = req.RasHost.Trim();
+            if (req.ClusterUser is not null) agent.ClusterUser = req.ClusterUser.Trim();
+            if (req.KillModeEnabled is not null) agent.KillModeEnabled = req.KillModeEnabled.Value;
+            if (req.PollIntervalSeconds is not null) agent.PollIntervalSeconds = Math.Clamp(req.PollIntervalSeconds.Value, 5, 3600);
+
+            // Password rule:
+            // - null => don't change
+            // - empty string => keep as-is (we don't support "clear" yet)
+            // - non-empty => overwrite with protected value
+            if (req.ClusterPass is not null && !string.IsNullOrWhiteSpace(req.ClusterPass))
+            {
+                agent.ClusterPassProtected = protector.ProtectToBase64(req.ClusterPass);
+            }
+
+            await db.SaveChangesAsync(ct);
+
+            return Results.Ok(new { success = true });
+        });
+
+        // Agents list (for UI later)
+        endpoints.MapGet("/api/agents", async (IDbContextFactory<AppDbContext> dbFactory, CancellationToken ct) =>
+        {
+            await using var db = await dbFactory.CreateDbContextAsync(ct);
+            var agents = await db.Agents
+                .OrderBy(a => a.Name)
+                .Select(a => new
+                {
+                    a.Id,
+                    a.Name,
+                    a.Hostname,
+                    a.LastSeenAtUtc,
+                    a.Enabled,
+                    a.LastKnownClusterStatus
+                })
+                .ToListAsync(ct);
+
+            return Results.Ok(agents);
+        });
+
+        // Default-agent fallback for UI requests that don't specify agentId (backward compatible)
+        endpoints.MapGet("/api/_internal/default-agent", async (IDbContextFactory<AppDbContext> dbFactory, CancellationToken ct) =>
+        {
+            var id = await GetDefaultAgentIdAsync(dbFactory, ct);
+            return Results.Ok(new { agentId = id });
+        });
+
+        return endpoints;
+    }
+
+    public static async Task<Guid?> GetDefaultAgentIdAsync(IDbContextFactory<AppDbContext> dbFactory, CancellationToken ct)
+        => await AgentResolver.GetDefaultAgentIdAsync(dbFactory, ct);
+
+    internal sealed record AgentSettingsResponse(
+        Guid AgentId,
+        bool Enabled,
+        string RacPath,
+        string RasHost,
+        string? ClusterUser,
+        bool ClusterPassIsSet,
+        bool KillModeEnabled,
+        int PollIntervalSeconds);
+
+    internal sealed record AgentSettingsUpdateRequest(
+        bool? Enabled,
+        string? RacPath,
+        string? RasHost,
+        string? ClusterUser,
+        string? ClusterPass,
+        bool? KillModeEnabled,
+        int? PollIntervalSeconds);
+}

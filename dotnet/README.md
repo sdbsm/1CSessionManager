@@ -48,7 +48,8 @@ MSSQL подключается **без хранения паролей в ко�
 - `npm run build`
 
 UI доступен по:
-- `http://localhost:3000/app/`
+- в dev-режиме (Vite): `http://localhost:3000/` (иногда удобно открывать сразу `http://localhost:3000/app/`)
+- в прод-режиме (раздаётся Control): `http://localhost:5000/app/`
 
 Все основные настройки вводятся в UI:
 - `http://localhost:3000/app/` → **Settings**
@@ -61,6 +62,17 @@ UI доступен по:
 Требования:
 - запуск PowerShell **от имени администратора**
 - установлен .NET Runtime 10 (или используйте self-contained publish позже)
+
+### Installer (.exe, self-contained)
+Сборка инсталлятора:
+- `dotnet/deploy/windows/build-installer.ps1`
+
+Запуск (от имени администратора):
+- интерактивно: просто запустите `1CSessionManager.Installer.exe`
+- неинтерактивно:
+  - `1CSessionManager.Installer.exe --install`
+  - `1CSessionManager.Installer.exe --uninstall`
+  - `1CSessionManager.Installer.exe --install --dir "D:\Apps\1CSessionManager" --no-start`
 
 ### Важно про RAC
 Путь к `rac.exe` и `rasHost` задаются через UI (Settings), затем Agent начинает видеть кластер/инфобазы/сессии.

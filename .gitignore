@@ -12,6 +12,7 @@ ui/build/
 dotnet/**/bin/
 dotnet/**/obj/
 dotnet/**/.vs/
+dotnet/out/
 
 # Vite build output copied into ASP.NET Control wwwroot
 dotnet/src/1CSessionManager.Control/wwwroot/app/

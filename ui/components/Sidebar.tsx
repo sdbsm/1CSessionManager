@@ -1,66 +1,85 @@
 import React from 'react';
 import { 
-  LayoutDashboard, 
+  Gauge, 
   Users, 
   Settings as SettingsIcon, 
   FileText, 
   LogOut,
-  Database
+  Database,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 
 interface SidebarProps {
-  activeTab: string;
-  onTabChange: (tab: string) => void;
+  activeRoute: string;
+  onNavigate: (route: string) => void;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ activeTab, onTabChange }) => {
-  const menuItems = [
-    { id: 'dashboard', label: 'Дашбоард', icon: LayoutDashboard },
-    { id: 'clients', label: 'Клиенты и Сеансы', icon: Users },
-    { id: 'settings', label: 'Настройки', icon: SettingsIcon },
-    { id: 'events', label: 'События', icon: FileText },
+const Sidebar: React.FC<SidebarProps> = ({ activeRoute, onNavigate }) => {
+  const [collapsed, setCollapsed] = React.useState(false);
+
+  const menuItems: Array<{ id: string; label: string; icon: any; hint?: string }> = [
+    { id: 'status', label: 'Обзор', icon: Gauge, hint: 'Состояние и активные проблемы' },
+    { id: 'events', label: 'События', icon: FileText, hint: 'Логи, алерты, расследование' },
+    { id: 'clients', label: 'Клиенты', icon: Users, hint: 'Квоты, инфобазы, лимиты' },
+    { id: 'settings', label: 'Настройки', icon: SettingsIcon, hint: 'Интеграции и политика' },
   ];
 
   return (
-    <div className="w-64 bg-slate-900 h-screen flex flex-col text-white flex-shrink-0">
-      <div className="p-6 flex items-center gap-3 border-b border-slate-800">
+    <div className={`${collapsed ? 'w-[76px]' : 'w-72'} bg-slate-950 h-screen flex flex-col text-white flex-shrink-0 border-r border-white/10`}>
+      <div className={`px-5 ${collapsed ? 'py-5' : 'py-6'} flex items-center gap-3 border-b border-white/10`}>
         <div className="bg-indigo-500 p-2 rounded-lg">
           <Database size={24} className="text-white" />
         </div>
-        <div>
-          <h1 className="font-bold text-lg leading-tight">1C Session Manager</h1>
-          <p className="text-xs text-slate-400">Enterprise Edition</p>
-        </div>
+        {!collapsed && (
+          <div className="min-w-0">
+            <h1 className="font-semibold text-[15px] leading-tight truncate">1C Session Manager</h1>
+            <p className="text-xs text-slate-400">Ops Console</p>
+          </div>
+        )}
+        <button
+          onClick={() => setCollapsed(v => !v)}
+          className="ml-auto p-2 rounded-md text-slate-300 hover:text-white hover:bg-white/5 transition-colors"
+          aria-label={collapsed ? 'Развернуть меню' : 'Свернуть меню'}
+          title={collapsed ? 'Развернуть' : 'Свернуть'}
+        >
+          {collapsed ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
+        </button>
       </div>
 
-      <nav className="flex-1 p-4 space-y-2">
+      <nav className={`flex-1 ${collapsed ? 'p-2' : 'p-4'} space-y-2`}>
         {menuItems.map((item) => (
           <button
             key={item.id}
-            onClick={() => onTabChange(item.id)}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg transition-all duration-200 ${
-              activeTab === item.id 
-                ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-900/20' 
-                : 'text-slate-400 hover:bg-slate-800 hover:text-white'
+            onClick={() => onNavigate(item.id)}
+            className={`w-full flex items-center ${collapsed ? 'justify-center' : 'gap-3'} px-4 py-3 rounded-lg transition-all duration-200 ${
+              activeRoute === item.id 
+                ? 'bg-indigo-500/20 text-white ring-1 ring-indigo-500/40' 
+                : 'text-slate-300 hover:bg-white/5 hover:text-white'
             }`}
+            title={collapsed ? item.label : item.hint}
           >
             <item.icon size={20} />
-            <span className="font-medium">{item.label}</span>
+            {!collapsed && <span className="font-medium text-sm">{item.label}</span>}
           </button>
         ))}
       </nav>
 
-      <div className="p-4 border-t border-slate-800">
-        <div className="bg-slate-800/50 p-4 rounded-lg mb-4">
-          <p className="text-xs text-slate-400 mb-1">Статус службы</p>
+      <div className={`${collapsed ? 'p-2' : 'p-4'} border-t border-white/10`}>
+        <div className={`bg-white/5 p-4 rounded-lg mb-3 ${collapsed ? 'hidden' : ''}`}>
+          <p className="text-xs text-slate-400 mb-1">Служба</p>
           <div className="flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-green-500 animate-pulse"></span>
-            <span className="text-sm font-medium text-green-400">Работает</span>
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span className="text-sm font-medium text-emerald-300">Активна</span>
           </div>
         </div>
-        <button className="w-full flex items-center gap-3 px-4 py-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-lg transition-colors">
+
+        <button
+          className={`w-full flex items-center ${collapsed ? 'justify-center' : 'gap-3'} px-4 py-2 text-slate-300 hover:text-white hover:bg-white/5 rounded-lg transition-colors`}
+          title="Выход (пока не реализовано)"
+        >
           <LogOut size={18} />
-          <span>Выход</span>
+          {!collapsed && <span>Выход</span>}
         </button>
       </div>
     </div>

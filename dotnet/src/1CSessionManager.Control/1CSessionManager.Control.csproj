@@ -14,10 +14,17 @@
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
     <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="10.0.1" />
+    <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="10.0.1" />
+    <PackageReference Include="Serilog.AspNetCore" Version="9.0.0" />
+    <PackageReference Include="Serilog.Extensions.Logging.File" Version="3.0.0" />
+    <PackageReference Include="Serilog.Sinks.Console" Version="6.0.0" />
+    <PackageReference Include="Serilog.Sinks.File" Version="6.0.0" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\1CSessionManager.Shared\1CSessionManager.Shared.csproj" />
+    <ProjectReference Include="..\1CSessionManager.Control.Application\1CSessionManager.Control.Application.csproj" />
+    <ProjectReference Include="..\1CSessionManager.Control.Infrastructure\1CSessionManager.Control.Infrastructure.csproj" />
   </ItemGroup>
 
 </Project>

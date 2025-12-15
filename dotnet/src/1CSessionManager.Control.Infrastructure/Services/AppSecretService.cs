@@ -10,6 +10,7 @@ public sealed class AppSecretService(
     SecretProtector protector)
 {
     public const string ApiKeySecretKey = "auth.apiKey";
+    public const string LicensesTotalKey = "licenses.total";
 
     public async Task<string?> GetPlainAsync(string key, CancellationToken ct)
     {

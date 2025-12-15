@@ -21,25 +21,27 @@ const StatCard: React.FC<StatCardProps> = ({
   color = 'blue' 
 }) => {
   const colorClasses = {
-    blue: 'bg-blue-50 text-blue-600',
-    green: 'bg-green-50 text-green-600',
-    red: 'bg-red-50 text-red-600',
-    orange: 'bg-orange-50 text-orange-600',
+    blue: 'bg-blue-500/10 text-blue-200 ring-1 ring-blue-500/20',
+    green: 'bg-emerald-500/10 text-emerald-200 ring-1 ring-emerald-500/20',
+    red: 'bg-rose-500/10 text-rose-200 ring-1 ring-rose-500/20',
+    orange: 'bg-amber-500/10 text-amber-200 ring-1 ring-amber-500/20',
   };
 
   return (
-    <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm hover:shadow-md transition-shadow duration-300">
+    <div className="rounded-xl border border-white/10 bg-slate-950/40 p-6 shadow-sm hover:shadow-panel transition-shadow duration-300">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-sm font-medium text-slate-500">{title}</h3>
+        <h3 className="text-sm font-medium text-slate-300">{title}</h3>
         <div className={`p-2 rounded-lg ${colorClasses[color]}`}>
           <Icon size={20} />
         </div>
       </div>
       <div className="flex items-baseline space-x-2">
-        <h2 className="text-3xl font-bold text-slate-800">{value}</h2>
+        <h2 className="text-3xl font-bold text-slate-50">{value}</h2>
         {trend && (
           <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${
-            trend === 'up' ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
+            trend === 'up'
+              ? 'bg-rose-500/15 text-rose-200 ring-1 ring-rose-500/20'
+              : 'bg-emerald-500/15 text-emerald-200 ring-1 ring-emerald-500/20'
           }`}>
             {trend === 'up' ? '↑' : '↓'} {trendValue}
           </span>
