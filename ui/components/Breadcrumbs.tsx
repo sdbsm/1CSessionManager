@@ -39,9 +39,9 @@ export const Breadcrumbs: React.FC<{ clients: Client[] }> = ({ clients }) => {
     if (baseRoute === 'clients') {
       list.push({ label: 'Клиенты', hash: '#/clients' });
       const view = subRoute || params.get('view') || '';
-      if (view === 'infobases') list.push({ label: 'Инфобазы' });
+      if (view === 'infobases') list.push({ label: 'Инфобазы', hash: '#/clients/infobases' });
       else if (view === 'publications') {
-        list.push({ label: 'Публикации' });
+        list.push({ label: 'Публикации', hash: '#/clients/publications' });
         if (subSubRoute === 'mass-update') list.push({ label: 'Массовая смена платформы' });
       }
       const clientId = params.get('clientId');

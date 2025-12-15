@@ -37,7 +37,7 @@ export const StatsOverview: React.FC<StatsOverviewProps> = ({
           : (fallbackClientLimit > 0 ? `${totalSessions} / ${fallbackClientLimit} (лимит по клиентам)` : `${totalSessions} (лимит не задан)`)}
         icon={Activity}
         color={utilizationRate >= 90 ? 'orange' : utilizationRate >= 75 ? 'blue' : 'green'}
-        hrefHash="#/events?levels=critical,warning"
+        hrefHash="#/clients"
       />
       <StatCard
         title="Активные клиенты"

@@ -101,6 +101,20 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ clients, timeRan
         run: () => { window.location.hash = '#/events'; }
       },
       {
+        id: 'go:infobases',
+        kind: 'action',
+        label: 'Открыть: Нераспределённые базы',
+        hint: 'Управление базами без владельцев',
+        run: () => { window.location.hash = '#/clients/infobases'; }
+      },
+      {
+        id: 'go:mass-update',
+        kind: 'action',
+        label: 'Открыть: Массовая смена платформы',
+        hint: 'Обновление версий публикаций',
+        run: () => { window.location.hash = '#/clients/publications/mass-update'; }
+      },
+      {
         id: 'copy:events-critical',
         kind: 'action',
         label: 'Скопировать ссылку: События (critical)',

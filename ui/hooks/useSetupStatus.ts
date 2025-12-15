@@ -24,17 +24,26 @@ export function useSetupStatus() {
             encrypt: !!db.value.encrypt
         });
       }
-    } catch { setDbEndpointStatus('unknown'); }
+    } catch (e: any) {
+      console.error('Failed to load DB endpoint status:', e);
+      setDbEndpointStatus('unknown');
+    }
 
     try {
       const sql = await apiFetchJson<{ isSet: boolean }>('/api/setup/sql/status', { skipAuthHeader: true });
       setSqlLoginStatus(sql.isSet ? 'set' : 'not_set');
-    } catch { setSqlLoginStatus('unknown'); }
+    } catch (e: any) {
+      console.error('Failed to load SQL login status:', e);
+      setSqlLoginStatus('unknown');
+    }
 
     try {
       const st = await apiFetchJson<{ isSet: boolean }>('/api/admin/apikey/status', { skipAuthHeader: true });
       setApiKeyStatus(st.isSet ? 'set' : 'not_set');
-    } catch { setApiKeyStatus('unknown'); }
+    } catch (e: any) {
+      console.error('Failed to load API key status:', e);
+      setApiKeyStatus('unknown');
+    }
 
     try {
       const lic = await apiFetchJson<{ isSet: boolean; total?: number | null }>('/api/admin/licenses/status');
@@ -44,7 +53,10 @@ export function useSetupStatus() {
       } else {
         setLicensesStatus('not_set');
       }
-    } catch { setLicensesStatus('unknown'); }
+    } catch (e: any) {
+      console.error('Failed to load licenses status:', e);
+      setLicensesStatus('unknown');
+    }
   };
 
   useEffect(() => {
@@ -90,13 +102,16 @@ export function useSetupStatus() {
   const testSqlLogin = async () => {
     try {
       const res = await apiFetch('/api/setup/sql/test', { method: 'POST', skipAuthHeader: true });
-      const data = await res.json();
+      if (!res.ok) {
+        return { success: false, error: `HTTP ${res.status}` };
+      }
+      const data = await res.json().catch(() => ({}));
       if (data.success) {
         return { success: true, version: data.version };
       }
-      return { success: false, error: data.error };
+      return { success: false, error: data.error || 'Неизвестная ошибка' };
     } catch (e: any) {
-      return { success: false, error: e.message };
+      return { success: false, error: e.message || 'Ошибка соединения' };
     }
   };
 

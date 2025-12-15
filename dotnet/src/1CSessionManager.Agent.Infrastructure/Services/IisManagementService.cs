@@ -39,7 +39,8 @@ public class IisManagementService(ILogger<IisManagementService> logger) : IIisMa
                             if (!string.IsNullOrEmpty(scriptProcessor) && 
                                 scriptProcessor.EndsWith("wsisapi.dll", StringComparison.OrdinalIgnoreCase))
                             {
-                                binPath = scriptProcessor;
+                                // Remove quotes if present (IIS sometimes stores paths with quotes)
+                                binPath = scriptProcessor.Trim().Trim('"');
                                 break;
                             }
                         }
@@ -51,12 +52,17 @@ public class IisManagementService(ILogger<IisManagementService> logger) : IIisMa
                             var vdir = app.VirtualDirectories["/"];
                             var physPath = vdir?.PhysicalPath;
 
-                            result.Add(new OneCPublication(
-                                SiteName: site.Name,
-                                Path: app.Path,
-                                PhysicalPath: physPath ?? "",
-                                CurrentVersionBinPath: Path.GetDirectoryName(binPath)
-                            ));
+                            // Get directory name (should be .../8.3.xx.xxxx/bin)
+                            var dirName = Path.GetDirectoryName(binPath);
+                            if (!string.IsNullOrEmpty(dirName))
+                            {
+                                result.Add(new OneCPublication(
+                                    SiteName: site.Name,
+                                    Path: app.Path,
+                                    PhysicalPath: physPath ?? "",
+                                    CurrentVersionBinPath: dirName
+                                ));
+                            }
                         }
                     }
                     catch (Exception ex)

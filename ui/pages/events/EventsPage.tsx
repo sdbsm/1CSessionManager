@@ -173,6 +173,7 @@ const Events: React.FC<EventsProps> = ({ timeRange, timePreset, setTimePreset, c
   }, []);
 
   const toCsv = (rows: Array<Record<string, string>>) => {
+    if (!rows || rows.length === 0) return '';
     const headers = Object.keys(rows[0] || {});
     const esc = (s: string) => `"${(s ?? '').replace(/"/g, '""')}"`;
     const lines = [

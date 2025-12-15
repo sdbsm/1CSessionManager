@@ -25,20 +25,52 @@ export function useSettings() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [agentId, setAgentId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
     const controller = new AbortController();
     
+    // Add timeout to prevent infinite loading
+    let timeoutFired = false;
+    const timeoutId = setTimeout(() => {
+      if (alive) {
+        timeoutFired = true;
+        console.warn('Settings loading timeout - setting default values');
+        setError('Таймаут загрузки настроек. Проверьте, что сервис Control запущен на http://localhost:5000');
+        setSettings({
+          racPath: '',
+          rasHost: 'localhost:1545',
+          clusterUser: '',
+          clusterPass: '',
+          checkInterval: 30,
+          killMode: false,
+          defaultOneCVersion: '',
+          installedVersionsJson: undefined,
+          publications: []
+        });
+        setLoading(false);
+      }
+    }, 10000); // 10 second timeout
+    
     (async () => {
       try {
+        setError(null);
+        setLoading(true);
         // 1. Get default agent ID
-        const def = await apiFetchJson<{agentId: string}>('/api/_internal/default-agent');
-        if (!def.agentId) throw new Error('No agent found');
+        const def = await apiFetchJson<{agentId: string | null}>('/api/_internal/default-agent', { 
+          signal: controller.signal
+        });
+        if (!def.agentId) {
+          throw new Error('Агент не найден. Убедитесь, что служба Agent запущена и подключена к базе данных.');
+        }
         if (alive) setAgentId(def.agentId);
 
         // 2. Get settings for this agent
-        const data = await apiFetchJson<LegacySettingsResponse>(`/api/agent/settings?agentId=${def.agentId}`, { signal: controller.signal });
+        const data = await apiFetchJson<LegacySettingsResponse>(`/api/agent/settings?agentId=${def.agentId}`, { 
+          signal: controller.signal,
+          skipAuthHeader: false
+        });
 
         if (!alive) return;
 
@@ -53,16 +85,35 @@ export function useSettings() {
           installedVersionsJson: data.installedVersionsJson,
           publications: data.publications
         });
-      } catch (err) {
+        setError(null);
+      } catch (err: any) {
         if (!alive) return;
+        const errorMessage = err?.message || 'Не удалось загрузить настройки. Проверьте, что сервис Control запущен и доступен на http://localhost:5000';
         console.error('Failed to load settings', err);
+        setError(errorMessage);
+        // Set default empty settings to allow UI to render
+        setSettings({
+          racPath: '',
+          rasHost: 'localhost:1545',
+          clusterUser: '',
+          clusterPass: '',
+          checkInterval: 30,
+          killMode: false,
+          defaultOneCVersion: '',
+          installedVersionsJson: undefined,
+          publications: []
+        });
       } finally {
-        if (alive) setLoading(false);
+        if (alive && !timeoutFired) {
+          clearTimeout(timeoutId);
+          setLoading(false);
+        }
       }
     })();
     
     return () => {
       alive = false;
+      clearTimeout(timeoutId);
       controller.abort();
     };
   }, []);
@@ -119,5 +170,5 @@ export function useSettings() {
     }
   };
 
-  return { settings, loading, saving, saveSettings, testConnection, setSettings, agentId };
+  return { settings, loading, saving, saveSettings, testConnection, setSettings, agentId, error };
 }

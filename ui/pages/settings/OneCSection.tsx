@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Server, Terminal, Save, CheckCircle2, XCircle } from 'lucide-react';
 import { Card } from '../../components/ui/Card';
 import { Input } from '../../components/ui/Input';
@@ -24,7 +24,17 @@ export const OneCSection: React.FC<OneCSectionProps> = ({
   onTest,
   errors
 }) => {
-  const versions = settings.installedVersionsJson ? JSON.parse(settings.installedVersionsJson) as string[] : [];
+  // Безопасный парсинг JSON с обработкой ошибок
+  const versions = useMemo(() => {
+    if (!settings.installedVersionsJson) return [];
+    try {
+      const parsed = JSON.parse(settings.installedVersionsJson);
+      return Array.isArray(parsed) ? parsed as string[] : [];
+    } catch (e) {
+      console.error('Ошибка парсинга installedVersionsJson:', e);
+      return [];
+    }
+  }, [settings.installedVersionsJson]);
   
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
@@ -89,6 +99,8 @@ export const OneCSection: React.FC<OneCSectionProps> = ({
                 <p className="text-xs text-slate-500 mt-2">
                     Выбор версии автоматически настроит путь к <code>rac.exe</code>. 
                     RAS Host по умолчанию: <code>localhost:1545</code>.
+                    <br />
+                    <span className="text-amber-400/80">⚠️ Если клиент 1С не подключается, попробуйте использовать <code>127.0.0.1:1545</code> вместо <code>localhost:1545</code> или имя компьютера.</span>
                 </p>
             </div>
         </div>
@@ -125,10 +137,10 @@ export const OneCSection: React.FC<OneCSectionProps> = ({
         )}
 
         <Input 
-            label="Администратор кластера" 
+            label="Администратор кластера (необязательно)" 
             value={settings.clusterUser} 
             onChange={e => onChange('clusterUser', e.target.value)} 
-            placeholder="Administrator"
+            placeholder="Administrator (если требуется)"
             error={errors?.clusterUser}
         />
         <Input 

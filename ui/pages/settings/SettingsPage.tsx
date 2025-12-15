@@ -35,7 +35,7 @@ function validateSettings(s: AppSettings): SettingsErrors {
   const ras = (s.rasHost || '').trim();
   if (!ras) {
     errors.rasHost = 'Укажите RAS host (например, localhost:1545).';
-  } else if (!/^[^\\s]+:\\d+$/.test(ras)) {
+  } else if (!/^[^\s]+:\d+$/.test(ras)) {
     // "host:port" minimal check (works for localhost, ip, fqdn)
     errors.rasHost = 'Формат: host:port (например, localhost:1545).';
   }
@@ -52,19 +52,23 @@ function validateSettings(s: AppSettings): SettingsErrors {
   const rac = (s.racPath || '').trim();
   if (!rac) {
     errors.racPath = 'Укажите путь к rac.exe (можно выбрать версию — путь подставится).';
-  } else if (!rac.toLowerCase().endsWith('\\rac.exe')) {
+  } else if (!/rac\.exe$/i.test(rac)) {
+    // Проверка на окончание пути на rac.exe (регистронезависимо, любой разделитель пути)
     errors.racPath = 'Путь должен указывать на rac.exe.';
   }
 
-  if ((s.clusterUser || '').trim().length === 0) {
-    errors.clusterUser = 'Укажите пользователя кластера (например, Administrator).';
+  // Пользователь кластера необязателен - некоторые установки 1С работают без аутентификации
+  // Проверяем только если указан пароль (для логики: если есть пароль, должен быть и логин)
+  const hasPassword = (s.clusterPass || '').trim().length > 0;
+  if (hasPassword && (s.clusterUser || '').trim().length === 0) {
+    errors.clusterUser = 'Если указан пароль, необходимо указать пользователя кластера.';
   }
 
   return errors;
 }
 
 const Settings: React.FC = () => {
-  const { settings, loading, saving, saveSettings, testConnection, setSettings } = useSettings();
+  const { settings, loading, saving, saveSettings, testConnection, setSettings, error } = useSettings();
   const toast = useToast();
   
   // Use setup statuses to display badges in sidebar
@@ -81,27 +85,49 @@ const Settings: React.FC = () => {
     document.documentElement.classList.add('dark');
   }, []);
 
-  if (loading || !settings) {
-    return <Spinner centered />;
+  const handleChange = (field: keyof AppSettings, value: any) => {
+    setSettings(prev => prev ? ({ ...prev, [field]: value }) : null);
+  };
+
+  const isDirty = useMemo(() => {
+    if (!settings || !baselineRef.current) return false;
+    return stableSettingsFingerprint(baselineRef.current) !== stableSettingsFingerprint(settings);
+  }, [settings]);
+
+  const errors = useMemo(() => settings ? validateSettings(settings) : {}, [settings]);
+  const hasErrors = useMemo(() => Object.keys(errors).length > 0, [errors]);
+
+  if (loading && !settings) {
+    return <Spinner centered text="Загрузка настроек..." />;
+  }
+
+  if (!settings) {
+    return (
+      <div className="max-w-6xl mx-auto space-y-6 animate-in fade-in duration-300 pb-10">
+        <PageHeader 
+          title="Ошибка загрузки настроек" 
+          description="Не удалось загрузить настройки"
+        />
+        <div className="rounded-xl border border-rose-500/20 bg-rose-500/10 p-6">
+          <div className="text-rose-200 font-semibold mb-2">Ошибка</div>
+          <div className="text-sm text-rose-300/80">{error || 'Неизвестная ошибка'}</div>
+          <div className="mt-4 text-xs text-slate-400">
+            Убедитесь, что:
+            <ul className="list-disc list-inside mt-2 space-y-1">
+              <li>Сервис Control запущен и доступен по адресу http://localhost:5000</li>
+              <li>Сервис Agent запущен и зарегистрирован в базе данных</li>
+              <li>База данных настроена и доступна</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   // Initialize baseline once when settings are loaded.
   if (!baselineRef.current) {
     baselineRef.current = settings;
   }
-
-  const handleChange = (field: keyof AppSettings, value: any) => {
-    setSettings(prev => prev ? ({ ...prev, [field]: value }) : null);
-  };
-
-  const isDirty = useMemo(() => {
-    const base = baselineRef.current;
-    if (!base) return false;
-    return stableSettingsFingerprint(base) !== stableSettingsFingerprint(settings);
-  }, [settings]);
-
-  const errors = useMemo(() => validateSettings(settings), [settings]);
-  const hasErrors = useMemo(() => Object.keys(errors).length > 0, [errors]);
 
   const handleSave = async () => {
     if (!isDirty) {
@@ -135,6 +161,16 @@ const Settings: React.FC = () => {
         title="Настройки" 
         description="Структурировано по зонам ответственности: Setup → 1C → Policy → UI."
       />
+
+      {error && (
+        <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 p-4">
+          <div className="text-amber-200 font-semibold mb-1">⚠️ Предупреждение</div>
+          <div className="text-sm text-amber-300/80">{error}</div>
+          <div className="mt-2 text-xs text-slate-400">
+            Некоторые функции могут быть недоступны. Убедитесь, что сервис Control запущен.
+          </div>
+        </div>
+      )}
 
       {section !== 'setup' && (
         <div className={`rounded-xl border border-white/10 bg-slate-950/40 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${

@@ -52,7 +52,11 @@ public class AgentCommandProcessor(
             catch (Exception ex)
             {
                 logger.LogError(ex, "Command {Id} failed", cmd.Id);
-                await store.UpdateCommandStatusAsync(cmd.Id, "Failed", ex.Message, ct);
+                // Preserve full error message, especially for FileNotFoundException which may truncate Message property
+                var errorMsg = ex is FileNotFoundException fnf 
+                    ? (fnf.Message ?? ex.ToString()) 
+                    : (ex.Message ?? ex.ToString());
+                await store.UpdateCommandStatusAsync(cmd.Id, "Failed", errorMsg, ct);
             }
         }
     }
@@ -61,8 +65,16 @@ public class AgentCommandProcessor(
     private async Task HandlePublishAsync(Guid commandId, string? json, CancellationToken ct)
     {
         if (json == null) throw new ArgumentNullException(nameof(json));
+        logger.LogInformation("Deserializing PublishPayload from JSON: {Json}", json);
         var p = JsonSerializer.Deserialize<PublishPayload>(json);
         if (p == null) throw new ArgumentException("Invalid payload");
+        
+        // Ensure version is not null or empty, and preserve full string
+        var version = string.IsNullOrWhiteSpace(p.Version) 
+            ? throw new ArgumentException("Версия платформы не указана в команде") 
+            : p.Version.Trim();
+        
+        logger.LogInformation("PublishPayload deserialized. Version: '{Version}' (length: {Length})", version, version.Length);
 
         var siteName = p.SiteName ?? "Default Web Site";
         var appPath = p.BaseName.StartsWith("/") ? p.BaseName : "/" + p.BaseName;
@@ -77,12 +89,12 @@ public class AgentCommandProcessor(
 
         if (existing != null)
         {
-            logger.LogInformation("Publication {Path} exists. Updating version to {Version}...", appPath, p.Version);
-            await store.UpdateCommandProgressAsync(commandId, 40, $"Обновляю версию (IIS): {siteName}{appPath} → {p.Version}", ct);
+            logger.LogInformation("Publication {Path} exists. Updating version to {Version}...", appPath, version);
+            await store.UpdateCommandProgressAsync(commandId, 40, $"Обновляю версию (IIS): {siteName}{appPath} → {version}", ct);
             
             // It exists. Update version safely using IIS API.
             // 1. Resolve bin path for target version
-            var binPath = webinst.GetBinPath(p.Version);
+            var binPath = webinst.GetBinPath(version);
             
             // 2. Update IIS
             iis.UpdatePublicationVersion(siteName, appPath, binPath);
@@ -94,7 +106,7 @@ public class AgentCommandProcessor(
             await store.UpdateCommandProgressAsync(commandId, 40, $"Создаю публикацию (webinst): {siteName}{appPath}", ct);
             
             // New publication -> webinst
-            await webinst.PublishAsync(p.Version, p.BaseName, p.FolderPath, p.ConnectionString, ct);
+            await webinst.PublishAsync(version, p.BaseName, p.FolderPath, p.ConnectionString, ct);
             await store.UpdateCommandProgressAsync(commandId, 90, "Проверяю результат...", ct);
         }
     }
@@ -103,11 +115,19 @@ public class AgentCommandProcessor(
     private async Task HandlePublishNewAsync(Guid commandId, string? json, CancellationToken ct)
     {
         if (json == null) throw new ArgumentNullException(nameof(json));
+        logger.LogInformation("Deserializing PublishNewPayload from JSON: {Json}", json);
         var p = JsonSerializer.Deserialize<PublishNewPayload>(json);
         if (p == null) throw new ArgumentException("Invalid payload");
+        
+        // Ensure version is not null or empty, and preserve full string
+        var version = string.IsNullOrWhiteSpace(p.Version) 
+            ? throw new ArgumentException("Версия платформы не указана в команде") 
+            : p.Version.Trim();
+        
+        logger.LogInformation("PublishNewPayload deserialized. Version: '{Version}' (length: {Length})", version, version.Length);
 
         await store.UpdateCommandProgressAsync(commandId, 20, $"Создаю публикацию (webinst): {p.BaseName}", ct);
-        await webinst.PublishAsync(p.Version, p.BaseName, p.FolderPath, p.ConnectionString, ct);
+        await webinst.PublishAsync(version, p.BaseName, p.FolderPath, p.ConnectionString, ct);
         await store.UpdateCommandProgressAsync(commandId, 90, "Проверяю результат...", ct);
     }
 
@@ -127,17 +147,27 @@ public class AgentCommandProcessor(
     private async Task HandleMassUpdateVersionsAsync(Guid commandId, string? json, CancellationToken ct)
     {
         if (json == null) throw new ArgumentNullException(nameof(json));
+        logger.LogInformation("Deserializing MassUpdatePayload from JSON: {Json}", json);
         var p = JsonSerializer.Deserialize<MassUpdatePayload>(json);
         if (p == null) throw new ArgumentException("Invalid payload");
+        
+        // Ensure versions are preserved correctly
+        var sourceVersion = string.IsNullOrWhiteSpace(p.SourceVersion) ? null : p.SourceVersion.Trim();
+        var targetVersion = string.IsNullOrWhiteSpace(p.TargetVersion) 
+            ? throw new ArgumentException("Целевая версия платформы не указана") 
+            : p.TargetVersion.Trim();
+        
+        logger.LogInformation("MassUpdatePayload deserialized. SourceVersion: '{Source}' (length: {SourceLen}), TargetVersion: '{Target}' (length: {TargetLen})", 
+            sourceVersion, sourceVersion?.Length ?? 0, targetVersion, targetVersion.Length);
 
         string? sourceBin = null;
-        if (!string.IsNullOrEmpty(p.SourceVersion))
+        if (!string.IsNullOrEmpty(sourceVersion))
         {
              // If source version is specified, resolve its path
-             sourceBin = webinst.GetBinPath(p.SourceVersion);
+             sourceBin = webinst.GetBinPath(sourceVersion);
         }
         
-        var targetBin = webinst.GetBinPath(p.TargetVersion);
+        var targetBin = webinst.GetBinPath(targetVersion);
 
         var pubs = iis.GetPublications();
 

@@ -58,7 +58,7 @@ export const ActiveIssues: React.FC<ActiveIssuesProps> = ({
         severity: 'warning',
         title: 'Есть клиенты на лимите/в блокировке',
         description: `Критичных клиентов: ${criticalClientsCount}. Проверьте квоты и политику ограничений.`,
-        action: { label: 'Открыть клиентов', run: () => { window.location.hash = '#/clients'; } }
+        action: { label: 'Открыть клиентов', run: () => { window.location.hash = '#/clients?status=blocked,warning'; } }
       });
     }
 
@@ -67,7 +67,7 @@ export const ActiveIssues: React.FC<ActiveIssuesProps> = ({
         severity: warnings.some(w => (w.utilization ?? 0) >= 100 || w.status === 'blocked') ? 'critical' : 'warning',
         title: 'Активные предупреждения по квотам',
         description: `Предупреждений: ${warnings.length}. Есть риск деградации/кика сессий.`,
-        action: { label: 'Открыть клиентов', run: () => { window.location.hash = '#/clients'; } }
+        action: { label: 'Открыть клиентов', run: () => { window.location.hash = '#/clients?ops=risk,over'; } }
       });
     }
 

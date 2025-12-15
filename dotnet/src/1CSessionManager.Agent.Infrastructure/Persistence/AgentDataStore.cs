@@ -320,10 +320,14 @@ public sealed class AgentDataStore(IDbContextFactory<AppDbContext> dbFactory) : 
     {
         // binPath is typically .../8.3.24.1342/bin
         // or .../8.3.24.1342
+        if (string.IsNullOrWhiteSpace(binPath)) return null;
+        
         var dir = new DirectoryInfo(binPath);
         if (dir.Name.Equals("bin", StringComparison.OrdinalIgnoreCase))
         {
-            return dir.Parent?.Name;
+            var version = dir.Parent?.Name;
+            // Ensure we return the full version string (e.g., "8.3.27.1786", not truncated)
+            return version;
         }
         return dir.Name;
     }

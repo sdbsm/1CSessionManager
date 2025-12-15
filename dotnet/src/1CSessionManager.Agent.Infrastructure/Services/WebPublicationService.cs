@@ -63,18 +63,38 @@ public class WebPublicationService(ILogger<WebPublicationService> logger) : IWeb
 
     private string FindWebinstPath(string version)
     {
+        // Ensure version is not null or empty
+        if (string.IsNullOrWhiteSpace(version))
+        {
+            throw new ArgumentException("Версия платформы не указана", nameof(version));
+        }
+        
+        // Trim to avoid whitespace issues, but preserve the full version string
+        version = version.Trim();
+        
+        logger.LogInformation("Finding webinst.exe for version: '{Version}' (length: {Length})", version, version.Length);
+        
         // Standard path: C:\Program Files\1cv8\8.3.xx.xxxx\bin\webinst.exe
         var programFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
         var path = Path.Combine(programFiles, "1cv8", version, "bin", "webinst.exe");
+        
+        logger.LogInformation("Checking path: {Path}", path);
         
         if (!File.Exists(path))
         {
             // Try Program Files (x86) just in case
             var programFiles86 = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86);
             var path86 = Path.Combine(programFiles86, "1cv8", version, "bin", "webinst.exe");
+            logger.LogInformation("Checking alternative path: {Path}", path86);
             if (File.Exists(path86)) return path86;
 
-            throw new FileNotFoundException($"Платформа {version} не найдена. Ожидался webinst.exe по пути {path}");
+            // Provide both paths in error message for debugging
+            // Use fileName parameter to ensure full path is preserved in exception
+            var errorMsg = $"Платформа {version} не найдена. Проверены пути:\n" +
+                          $"1. {path}\n" +
+                          $"2. {path86}\n" +
+                          $"Убедитесь, что версия платформы указана полностью (например, 8.3.27.1786, а не 8.3.27.178).";
+            throw new FileNotFoundException(errorMsg, path);
         }
             
         return path;

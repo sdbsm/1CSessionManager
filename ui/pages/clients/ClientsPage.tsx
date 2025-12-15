@@ -1,25 +1,27 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Plus, Search, Filter, RefreshCw, Save, Trash2 } from 'lucide-react';
-import { Client, AgentPublicationDto } from '../../types';
+import { Save, Trash2, Plus } from 'lucide-react';
+import { Client, AgentPublicationDto, StatusFilter, LimitFilter, OpsFilter, PublicationsRoute } from '../../types';
 import { Button } from '../../components/ui/Button';
 import { PageHeader } from '../../components/ui/PageHeader';
 import { Input } from '../../components/ui/Input';
-import { ClientTable } from './ClientTable';
 import { ClientModal } from './ClientModal';
-import { ClientStats } from './ClientStats';
-import { UnassignedDatabases } from './UnassignedDatabases';
 import { ClientDetailsDrawer } from './ClientDetailsDrawer';
 import { useInfobases } from '../../hooks/useInfobases';
 import { useSettings } from '../../hooks/useSettings';
-import { apiFetch, apiFetchJson } from '../../services/apiClient';
+import { apiFetchJson } from '../../services/apiClient';
 import { Modal } from '../../components/ui/Modal';
 import { Select } from '../../components/ui/Select';
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { useToast } from '../../hooks/useToast';
 import { downloadText } from '../../utils/download';
 import { ActionMenu } from '../../components/ui/ActionMenu';
-import { Badge } from '../../components/ui/Badge';
 import { useSavedClientsViews } from '../../hooks/useSavedClientsViews';
+import { formatRelativeShort } from '../../utils/time';
+
+// Views
+import { ClientsView } from './views/ClientsView';
+import { InfobasesView } from './views/InfobasesView';
+import { PublicationsView } from './views/PublicationsView';
 
 interface ClientsProps {
   clients: Client[];
@@ -31,24 +33,7 @@ interface ClientsProps {
   onRefresh?: () => void;
 }
 
-type StatusFilter = 'all' | 'active' | 'blocked' | 'warning';
-type LimitFilter = 'all' | 'limited' | 'unlimited';
-type OpsFilter = 'risk' | 'over' | 'noDbs' | 'noPubs';
-type ClientsView = 'clients' | 'infobases' | 'publications';
-type AgentCommandStatus = 'Pending' | 'Processing' | 'Completed' | 'Failed' | string;
-type PublicationsRoute = 'list' | 'mass-update';
-type AgentCommandDto = {
-  id: string;
-  commandType: string;
-  status: AgentCommandStatus;
-  errorMessage?: string | null;
-  progressPercent?: number | null;
-  progressMessage?: string | null;
-  startedAtUtc?: string | null;
-  lastUpdatedAtUtc?: string | null;
-  createdAtUtc: string;
-  processedAtUtc?: string | null;
-};
+type ClientsViewType = 'clients' | 'infobases' | 'publications';
 
 const Clients: React.FC<ClientsProps> = ({ clients, onAdd, onUpdate, onDelete, lastUpdate, isRefreshing, onRefresh }) => {
   const toast = useToast();
@@ -57,7 +42,10 @@ const Clients: React.FC<ClientsProps> = ({ clients, onAdd, onUpdate, onDelete, l
   const [saveViewOpen, setSaveViewOpen] = useState(false);
   const [deleteViewOpen, setDeleteViewOpen] = useState(false);
   const [savedViewName, setSavedViewName] = useState('');
-  const [view, setView] = useState<ClientsView>('clients');
+  
+  const [view, setView] = useState<ClientsViewType>('clients');
+  
+  // Clients Filters
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [limitFilter, setLimitFilter] = useState<LimitFilter>('all');
@@ -65,7 +53,7 @@ const Clients: React.FC<ClientsProps> = ({ clients, onAdd, onUpdate, onDelete, l
   const [sortBy, setSortBy] = useState<'name' | 'sessions' | 'databases' | 'status'>('name');
   const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
 
-  // Publications filters (Publications tab)
+  // Publications Filters
   const [pubSearch, setPubSearch] = useState('');
   const [pubVersion, setPubVersion] = useState('');
   const [pubSite, setPubSite] = useState('');
@@ -90,121 +78,63 @@ const Clients: React.FC<ClientsProps> = ({ clients, onAdd, onUpdate, onDelete, l
     setUnassignedDatabases(unassigned);
   }, [clients, availableDbs]);
 
-  // Mass Update State
-  const [massSource, setMassSource] = useState('');
-  const [massTarget, setMassTarget] = useState('');
-  const [massConfirmOpen, setMassConfirmOpen] = useState(false);
-  
   // Publish Modal State
   const [isPubModalOpen, setIsPubModalOpen] = useState(false);
   const [pubDbName, setPubDbName] = useState('');
   const [pubName, setPubName] = useState('');
   const [pubPath, setPubPath] = useState('C:\\inetpub\\wwwroot\\');
   const [pubVer, setPubVer] = useState('');
-  // New state to track if we are editing an existing publication
   const [isEditingPub, setIsEditingPub] = useState(false);
   const [pubConfirmOpen, setPubConfirmOpen] = useState(false);
   const [pendingPublishPayload, setPendingPublishPayload] = useState<any | null>(null);
 
-  // Confirm unassign database
+  // Confirm Actions
   const [unassignConfirm, setUnassignConfirm] = useState<{ clientId: string; dbName: string } | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null);
   const [detailsClientId, setDetailsClientId] = useState<string | null>(null);
 
   // Settings for publications
   const { settings, agentId } = useSettings();
-  const versions = settings?.installedVersionsJson ? JSON.parse(settings.installedVersionsJson) as string[] : [];
+  const versions = useMemo(() => {
+    if (!settings?.installedVersionsJson) return [];
+    try {
+      const parsed = JSON.parse(settings.installedVersionsJson);
+      return Array.isArray(parsed) ? parsed as string[] : [];
+    } catch (e) {
+      console.error('Ошибка парсинга installedVersionsJson:', e);
+      return [];
+    }
+  }, [settings?.installedVersionsJson]);
   const publications = settings?.publications || [];
-
-  // Agent commands (status/progress)
-  const [agentCommands, setAgentCommands] = useState<AgentCommandDto[]>([]);
-  const [commandsLoading, setCommandsLoading] = useState(false);
-  const [commandsLastUpdate, setCommandsLastUpdate] = useState<Date>(new Date(0));
 
   useEffect(() => {
     if (settings?.defaultOneCVersion && !pubVer) {
-      setMassTarget(settings.defaultOneCVersion);
       setPubVer(settings.defaultOneCVersion);
     }
   }, [settings, pubVer]);
 
-  const fetchAgentCommands = async () => {
-    if (!agentId) return;
-    setCommandsLoading(true);
-    try {
-      const rows = await apiFetchJson<AgentCommandDto[]>(`/api/agents/${agentId}/commands?take=30`);
-      setAgentCommands(rows || []);
-      setCommandsLastUpdate(new Date());
-    } catch (e) {
-      console.warn('Failed to load agent commands', e);
-    } finally {
-      setCommandsLoading(false);
-    }
-  };
-
-  const hasInFlightCommands = useMemo(() => {
-    return agentCommands.some(c => c.status === 'Pending' || c.status === 'Processing');
-  }, [agentCommands]);
-
-  useEffect(() => {
-    if (view !== 'publications') return;
-    if (!agentId) return;
-    fetchAgentCommands();
-    const id = window.setInterval(() => fetchAgentCommands(), hasInFlightCommands ? 5_000 : 15_000);
-    return () => window.clearInterval(id);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [view, agentId, hasInFlightCommands]);
-
   const sendCommand = async (type: string, payload: any) => {
     if (!agentId) return;
     try {
-      const res = await apiFetchJson<{ commandId: string }>(`/api/agents/${agentId}/commands`, {
+      const payloadJson = JSON.stringify(payload);
+      console.log('Sending command:', type, 'payload JSON:', payloadJson);
+      await apiFetchJson<{ commandId: string }>(`/api/agents/${agentId}/commands`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type, payloadJson: JSON.stringify(payload) })
+        body: JSON.stringify({ type, payloadJson })
       });
-      const commandId = res?.commandId;
-      if (commandId) {
-        const optimistic: AgentCommandDto = {
-          id: commandId,
-          commandType: type,
-          status: 'Pending',
-          errorMessage: null,
-          progressPercent: 0,
-          progressMessage: 'Ожидание агента...',
-          startedAtUtc: null,
-          lastUpdatedAtUtc: new Date().toISOString(),
-          createdAtUtc: new Date().toISOString(),
-          processedAtUtc: null
-        };
-        setAgentCommands(prev => [optimistic, ...prev].slice(0, 30));
-        setCommandsLastUpdate(new Date());
-      }
+      // We don't track the command ID here locally for the Publish modal, 
+      // but the agent will pick it up. The user will see it in the queue if they switch tabs.
+      // Or we could show a toast.
       toast.success({ title: 'Команда отправлена', message: 'Статус смотрите во вкладке “Публикации” → “Очередь агента”.' });
     } catch (e: any) {
       toast.error({ title: 'Ошибка', message: e?.message ? String(e.message) : 'Не удалось отправить команду агенту.' });
     }
   };
 
-  const handleMassUpdate = () => {
-    if (!massTarget) return; // Only target is required now
-    setPendingPublishPayload(null);
-    setMassConfirmOpen(true);
-  };
-
-  const executeMassUpdate = () => {
-    if (!massTarget) return;
-    sendCommand('MassUpdateVersions', {
-      SourceVersion: massSource,
-      TargetVersion: massTarget
-    });
-    setPubRoute('list');
-    setMassConfirmOpen(false);
-  };
-
   const handlePublishClick = (dbName: string) => {
     setPubDbName(dbName);
-    setPubName(dbName); // Default pub name = db name
+    setPubName(dbName);
     setPubPath(`C:\\inetpub\\wwwroot\\${dbName}`);
     if (settings?.defaultOneCVersion) {
         setPubVer(settings.defaultOneCVersion);
@@ -215,8 +145,7 @@ const Clients: React.FC<ClientsProps> = ({ clients, onAdd, onUpdate, onDelete, l
 
   const handleEditPublication = (dbName: string, pub: AgentPublicationDto) => {
     setPubDbName(dbName);
-    setPubName(pub.siteName); // siteName usually corresponds to the URL path part if structured correctly, or we use AppPath without slash
-    // AppPath is usually "/baseName", so we strip slash
+    setPubName(pub.siteName);
     const derivedName = pub.appPath.startsWith('/') ? pub.appPath.substring(1) : pub.appPath;
     setPubName(derivedName || pub.siteName); 
     setPubPath(pub.physicalPath);
@@ -227,83 +156,24 @@ const Clients: React.FC<ClientsProps> = ({ clients, onAdd, onUpdate, onDelete, l
 
   const handlePublishSubmit = () => {
     if (!pubName || !pubPath || !pubVer) return;
-    
-    // Construct AppPath (usually /Name)
     const appPath = pubName.startsWith('/') ? pubName : `/${pubName}`;
 
+    // Ensure version is not truncated
+    const version = String(pubVer).trim();
+    console.log('Publish version:', version, 'length:', version.length);
+
     const payload = {
-      SiteName: "Default Web Site", // Default IIS site, or make it configurable if needed? existing code used SiteName from DTO but "Default Web Site" implicitly for new ones. 
-      // Actually, existing code used 'BaseName' which backend mapped to AppPath/Name.
-      // Let's stick to what worked or what is expected.
-      // Based on previous PublicationsSection:
-      // New: BaseName, FolderPath, ConnectionString, Version
-      // Edit: SiteName, BaseName (AppPath), Version, FolderPath, ConnectionString
-      
-      // If we are editing, we should probably preserve the SiteName if possible, but the backend 'Publish' command
-      // might expect 'BaseName' to be the app name.
-      
+      SiteName: "Default Web Site",
       BaseName: pubName, 
       FolderPath: pubPath,
       ConnectionString: `Srvr="localhost";Ref="${pubDbName}";`,
-      Version: pubVer
+      Version: version
     };
 
+    console.log('Publish payload:', JSON.stringify(payload));
     setPendingPublishPayload(payload);
     setPubConfirmOpen(true);
   };
-
-  const formatRelativeTime = (date: Date) => {
-    const now = new Date();
-    const diff = Math.floor((now.getTime() - date.getTime()) / 1000);
-    if (diff < 5) return 'только что';
-    if (diff < 60) return `${diff}с назад`;
-    if (diff < 3600) return `${Math.floor(diff / 60)}м назад`;
-    return date.toLocaleTimeString('ru-RU');
-  };
-
-  const formatDuration = (ms: number) => {
-    const totalSec = Math.max(0, Math.floor(ms / 1000));
-    if (totalSec < 60) return `${totalSec}с`;
-    const m = Math.floor(totalSec / 60);
-    const s = totalSec % 60;
-    if (m < 60) return `${m}м ${s}с`;
-    const h = Math.floor(m / 60);
-    const mm = m % 60;
-    return `${h}ч ${mm}м`;
-  };
-
-  const etaFor = (c: AgentCommandDto) => {
-    if (c.status !== 'Processing') return null;
-    const p = typeof c.progressPercent === 'number' ? c.progressPercent : null;
-    if (p == null || p <= 0 || p >= 100) return null;
-    if (!c.startedAtUtc) return null;
-    const started = new Date(c.startedAtUtc);
-    if (Number.isNaN(started.getTime())) return null;
-    const elapsed = Date.now() - started.getTime();
-    if (elapsed <= 0) return null;
-    const remaining = Math.floor(elapsed * (100 - p) / p);
-    if (remaining <= 0) return null;
-    return `≈ ${formatDuration(remaining)}`;
-  };
-
-  const commandBadge = (status: AgentCommandStatus) => {
-    const st = (status || '').toString();
-    if (st === 'Completed') return <Badge variant="success" size="sm">Готово</Badge>;
-    if (st === 'Failed') return <Badge variant="danger" size="sm">Ошибка</Badge>;
-    if (st === 'Processing') return <Badge variant="warning" size="sm">В работе</Badge>;
-    if (st === 'Pending') return <Badge variant="neutral" size="sm">В очереди</Badge>;
-    return <Badge variant="neutral" size="sm">{st || '—'}</Badge>;
-  };
-
-  const cmdCounts = useMemo(() => {
-    let pending = 0, processing = 0, failed = 0;
-    for (const c of agentCommands) {
-      if (c.status === 'Pending') pending++;
-      else if (c.status === 'Processing') processing++;
-      else if (c.status === 'Failed') failed++;
-    }
-    return { pending, processing, failed };
-  }, [agentCommands]);
 
   const publicationsByBase = useMemo(() => {
     const map = new Map<string, AgentPublicationDto>();
@@ -318,7 +188,6 @@ const Clients: React.FC<ClientsProps> = ({ clients, onAdd, onUpdate, onDelete, l
   const pubNameError = useMemo(() => {
     const raw = (pubName || '').trim();
     if (!raw) return 'Укажите имя публикации.';
-    // Basic safety: we expect URL path segment (no spaces, no backslashes)
     if (/\s/.test(raw)) return 'Имя публикации не должно содержать пробелы.';
     if (raw.includes('\\')) return 'Имя публикации не должно содержать символ \\.';
     const s = raw.startsWith('/') ? raw.slice(1) : raw;
@@ -327,6 +196,14 @@ const Clients: React.FC<ClientsProps> = ({ clients, onAdd, onUpdate, onDelete, l
     if (!/^[a-zA-Z0-9._-]+$/.test(s)) return 'Допустимы: латиница, цифры, точка, дефис, подчёркивание.';
     return null;
   }, [pubName]);
+
+  const pubPathError = useMemo(() => {
+    const raw = (pubPath || '').trim();
+    if (!raw) return 'Укажите путь к папке.';
+    if (!/^[a-zA-Z]:\\/.test(raw)) return 'Путь должен начинаться с буквы диска (например C:\\).';
+    if (raw.includes('/')) return 'Используйте обратные слеши (\\) для Windows-путей.';
+    return null;
+  }, [pubPath]);
 
   const currentPublication = useMemo(() => {
     const fromName = (pubName || '').trim();
@@ -347,15 +224,12 @@ const Clients: React.FC<ClientsProps> = ({ clients, onAdd, onUpdate, onDelete, l
         c.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
         c.databases.some(db => db.name.toLowerCase().includes(searchTerm.toLowerCase()));
       
-      // Status filter
       const matchesStatus = statusFilter === 'all' || c.status === statusFilter;
       
-      // Limit filter
       const matchesLimit = limitFilter === 'all' || 
         (limitFilter === 'limited' && c.maxSessions > 0) ||
         (limitFilter === 'unlimited' && c.maxSessions === 0);
 
-      // Ops filters
       const isLimited = c.maxSessions > 0;
       const pct = isLimited ? (c.activeSessions / c.maxSessions) : 0;
       const hasRisk = isLimited && pct >= 0.8 && c.activeSessions < c.maxSessions;
@@ -373,7 +247,6 @@ const Clients: React.FC<ClientsProps> = ({ clients, onAdd, onUpdate, onDelete, l
       return matchesSearch && matchesStatus && matchesLimit && matchesOps;
     });
 
-    // Sort
     filtered.sort((a, b) => {
       let aVal: any, bVal: any;
       
@@ -407,6 +280,7 @@ const Clients: React.FC<ClientsProps> = ({ clients, onAdd, onUpdate, onDelete, l
   }, [clients, searchTerm, statusFilter, limitFilter, opsFilters, sortBy, sortOrder, publicationsByBase]);
 
   const toCsv = (rows: Array<Record<string, string>>) => {
+    if (!rows || rows.length === 0) return '';
     const headers = Object.keys(rows[0] || {});
     const esc = (s: string) => `"${(s ?? '').replace(/"/g, '""')}"`;
     const lines = [
@@ -460,7 +334,6 @@ const Clients: React.FC<ClientsProps> = ({ clients, onAdd, onUpdate, onDelete, l
       return;
     }
     setSortBy(field);
-    // sensible defaults per column type
     if (field === 'name') setSortOrder('asc');
     else setSortOrder('desc');
   };
@@ -549,8 +422,8 @@ const Clients: React.FC<ClientsProps> = ({ clients, onAdd, onUpdate, onDelete, l
     const sub2 = segs[2] || '';
     const params = new URLSearchParams(qs || '');
 
-    const viewFromPath = (sub === 'infobases' || sub === 'publications') ? (sub as ClientsView) : null;
-    const viewFromQuery = params.get('view') as ClientsView | null;
+    const viewFromPath = (sub === 'infobases' || sub === 'publications') ? (sub as ClientsViewType) : null;
+    const viewFromQuery = params.get('view') as ClientsViewType | null;
     const viewResolved =
       viewFromPath ||
       (viewFromQuery && ['clients', 'infobases', 'publications'].includes(viewFromQuery) ? viewFromQuery : null) ||
@@ -577,7 +450,6 @@ const Clients: React.FC<ClientsProps> = ({ clients, onAdd, onUpdate, onDelete, l
     const st = readStateFromHash();
     if (st.base !== 'clients') return;
 
-    // deep-link to drawer should always land on Clients view
     if (st.clientId) {
       if (detailsClientId !== st.clientId) setDetailsClientId(st.clientId);
       if (view !== 'clients') setView('clients');
@@ -587,23 +459,18 @@ const Clients: React.FC<ClientsProps> = ({ clients, onAdd, onUpdate, onDelete, l
     }
 
     if (st.q !== searchTerm) setSearchTerm(st.q);
-
     if (st.status && ['all', 'active', 'blocked', 'warning'].includes(st.status) && st.status !== statusFilter) {
       setStatusFilter(st.status);
     }
-
     if (st.limit && ['all', 'limited', 'unlimited'].includes(st.limit) && st.limit !== limitFilter) {
       setLimitFilter(st.limit);
     }
-
     if (st.sort && ['name', 'sessions', 'databases', 'status'].includes(st.sort) && st.sort !== sortBy) {
       setSortBy(st.sort);
     }
-
     if (st.order && ['asc', 'desc'].includes(st.order) && st.order !== sortOrder) {
       setSortOrder(st.order);
     }
-
     if (st.ops) {
       const allowed: OpsFilter[] = ['risk', 'over', 'noDbs', 'noPubs'];
       const next = new Set<OpsFilter>();
@@ -620,7 +487,6 @@ const Clients: React.FC<ClientsProps> = ({ clients, onAdd, onUpdate, onDelete, l
     if (st.pubRoute !== pubRoute) setPubRoute(st.pubRoute);
   };
 
-  // Initial restore + keep in sync with browser Back/Forward
   useEffect(() => {
     applyStateFromHash();
     const onHash = () => applyStateFromHash();
@@ -629,7 +495,6 @@ const Clients: React.FC<ClientsProps> = ({ clients, onAdd, onUpdate, onDelete, l
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Persist state to URL
   useEffect(() => {
     const params = new URLSearchParams();
     if (searchTerm.trim()) params.set('q', searchTerm.trim());
@@ -640,7 +505,7 @@ const Clients: React.FC<ClientsProps> = ({ clients, onAdd, onUpdate, onDelete, l
     if (sortBy !== 'name') params.set('sort', sortBy);
     if (sortOrder !== 'asc') params.set('order', sortOrder);
 
-    const effectiveView: ClientsView = detailsClientId ? 'clients' : view;
+    const effectiveView: ClientsViewType = detailsClientId ? 'clients' : view;
 
     if (effectiveView === 'publications') {
       if (pubSearch.trim()) params.set('pubQ', pubSearch.trim());
@@ -656,49 +521,7 @@ const Clients: React.FC<ClientsProps> = ({ clients, onAdd, onUpdate, onDelete, l
     if (window.location.hash !== nextHash) window.location.hash = nextHash;
   }, [view, searchTerm, statusFilter, limitFilter, opsFilters, detailsClientId, sortBy, sortOrder, pubSearch, pubVersion, pubSite, pubRoute]);
 
-  const affectedPublicationsCount = useMemo(() => {
-    if (!massTarget) return 0;
-    // If source is empty => all
-    return publications.filter(p => {
-      if (!massSource) return true;
-      return (p.version || '') === massSource;
-    }).length;
-  }, [publications, massSource, massTarget]);
-
-  const pubSites = useMemo(() => {
-    const s = new Set<string>();
-    for (const p of publications) {
-      const site = (p.siteName || '').trim();
-      if (site) s.add(site);
-    }
-    return Array.from(s).sort((a, b) => a.localeCompare(b));
-  }, [publications]);
-
-  const filteredPublications = useMemo(() => {
-    const q = pubSearch.trim().toLowerCase();
-    const ver = (pubVersion || '').trim();
-    const site = (pubSite || '').trim();
-    return publications.filter(p => {
-      if (ver && (p.version || '') !== ver) return false;
-      if (site && (p.siteName || '') !== site) return false;
-      if (!q) return true;
-      const hay = `${p.siteName || ''} ${p.appPath || ''} ${p.physicalPath || ''} ${p.version || ''}`.toLowerCase();
-      return hay.includes(q);
-    });
-  }, [publications, pubSearch, pubVersion, pubSite]);
-
-  const handleSaveClient = (clientData: any) => {
-    if (editingClient) {
-      onUpdate({
-        ...editingClient,
-        ...clientData
-      });
-    } else {
-      onAdd(clientData);
-    }
-  };
-
-  const viewTab = (id: ClientsView) => {
+  const viewTab = (id: ClientsViewType) => {
     const active = view === id;
     const base = 'px-3 py-2 rounded-lg text-sm font-semibold transition-colors border';
     const activeCls = 'bg-indigo-500/15 text-indigo-100 border-indigo-500/30';
@@ -753,6 +576,14 @@ const Clients: React.FC<ClientsProps> = ({ clients, onAdd, onUpdate, onDelete, l
     toast.info({ title: 'Удалено', message: v?.name ? `Представление: ${v.name}` : 'Представление удалено.' });
   };
 
+  const handleSaveClient = (clientData: any) => {
+    if (editingClient) {
+      onUpdate({ ...editingClient, ...clientData });
+    } else {
+      onAdd(clientData);
+    }
+  };
+
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-10">
       <PageHeader 
@@ -788,6 +619,7 @@ const Clients: React.FC<ClientsProps> = ({ clients, onAdd, onUpdate, onDelete, l
         }
       />
 
+      {/* Tabs */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="flex flex-wrap gap-2">
           <button type="button" className={viewTab('clients')} onClick={() => { setView('clients'); setPubRoute('list'); }}>
@@ -840,368 +672,72 @@ const Clients: React.FC<ClientsProps> = ({ clients, onAdd, onUpdate, onDelete, l
         </div>
       </div>
 
-      {view === 'clients' ? (
-        <ClientStats clients={clients} unassignedCount={unassignedDatabases.length} />
-      ) : null}
-
-      {view === 'infobases' ? (
-        <>
-          <div className="rounded-xl border border-white/10 bg-slate-950/40 p-4 text-sm text-slate-300">
-            Здесь — операционные задачи по инфобазам: найти нераспределённые и быстро назначить клиентам.
-          </div>
-          <UnassignedDatabases 
-            unassignedDatabases={unassignedDatabases}
-            clients={clients}
-            onAssign={handleQuickAssign}
-            onRefresh={fetchDatabases}
-            loading={loadingDbs}
-          />
-        </>
-      ) : null}
-
-      {view === 'publications' ? (
-        <div className="space-y-4">
-          <div className="rounded-xl border border-white/10 bg-slate-950/40 shadow-sm overflow-hidden">
-            <div className="p-4 border-b border-white/10 flex items-start justify-between gap-3">
-              <div>
-                <div className="text-sm font-semibold text-slate-50">Очередь агента (команды)</div>
-                <div className="text-xs text-slate-400 mt-1">В очереди → В работе → Готово / Ошибка</div>
-              </div>
-              <div className="flex items-center gap-2">
-                {cmdCounts.failed > 0 ? <Badge variant="danger" size="sm">Ошибок: {cmdCounts.failed}</Badge> : null}
-                {cmdCounts.processing > 0 ? <Badge variant="warning" size="sm">В работе: {cmdCounts.processing}</Badge> : null}
-                {cmdCounts.pending > 0 ? <Badge variant="neutral" size="sm">В очереди: {cmdCounts.pending}</Badge> : null}
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  onClick={fetchAgentCommands}
-                  isLoading={commandsLoading}
-                  icon={<RefreshCw size={14} className={hasInFlightCommands ? 'animate-spin' : ''} />}
-                >
-                  Обновить
-                </Button>
-              </div>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <thead className="bg-slate-950/60 text-slate-400 font-medium border-b border-white/10">
-                  <tr>
-                    <th className="px-4 py-3 w-[130px]">Статус</th>
-                    <th className="px-4 py-3">Команда</th>
-                    <th className="px-4 py-3 w-[160px]">Создана</th>
-                    <th className="px-4 py-3 w-[160px]">Завершена</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-white/10">
-                  {agentCommands.length === 0 ? (
-                    <tr>
-                      <td colSpan={4} className="px-4 py-10 text-center text-slate-400">
-                        Команд пока нет. Запустите публикацию/массовую операцию — она появится здесь.
-                      </td>
-                    </tr>
-                  ) : (
-                    agentCommands.slice(0, 30).map(c => {
-                      const created = c.createdAtUtc ? new Date(c.createdAtUtc) : null;
-                      const done = c.processedAtUtc ? new Date(c.processedAtUtc) : null;
-                      const eta = etaFor(c);
-                      const p = typeof c.progressPercent === 'number' ? Math.max(0, Math.min(100, c.progressPercent)) : null;
-                      return (
-                        <tr key={c.id} className={c.status === 'Failed' ? 'bg-rose-500/5' : 'hover:bg-white/5 transition-colors'}>
-                          <td className="px-4 py-2">{commandBadge(c.status)}</td>
-                          <td className="px-4 py-2">
-                            <div className="text-slate-100 font-semibold">{c.commandType}</div>
-                            {p != null ? (
-                              <div className="mt-1">
-                                <div className="flex items-center justify-between text-[10px] text-slate-400">
-                                  <span>{p}%</span>
-                                  <span className="truncate max-w-[520px]">{c.progressMessage || ''}</span>
-                                </div>
-                                <div className="mt-1 h-1.5 rounded-full bg-white/10 overflow-hidden">
-                                  <div
-                                    className="h-full bg-indigo-500/70"
-                                    style={{ width: `${p}%` }}
-                                  />
-                                </div>
-                              </div>
-                            ) : (c.progressMessage ? (
-                              <div className="text-xs text-slate-400 mt-0.5">{c.progressMessage}</div>
-                            ) : null)}
-                            {c.errorMessage ? <div className="text-xs text-rose-200 mt-0.5 break-all">{c.errorMessage}</div> : null}
-                            <div className="text-[10px] text-slate-500 font-mono mt-0.5 truncate" title={c.id}>{c.id}</div>
-                          </td>
-                          <td className="px-4 py-2 text-xs text-slate-400 font-mono whitespace-nowrap">{created ? formatRelativeTime(created) : '—'}</td>
-                          <td className="px-4 py-2 text-xs text-slate-400 font-mono whitespace-nowrap">
-                            {done ? formatRelativeTime(done) : (eta ? `ETA ${eta}` : '—')}
-                          </td>
-                        </tr>
-                      );
-                    })
-                  )}
-                </tbody>
-              </table>
-            </div>
-            <div className="px-4 py-3 border-t border-white/10 text-xs text-slate-500 flex items-center justify-between">
-              <span>Автообновление: {hasInFlightCommands ? 'каждые 5с' : 'каждые 15с'}</span>
-              <span>{commandsLastUpdate.getTime() > 0 ? `Обновлено: ${formatRelativeTime(commandsLastUpdate)}` : ''}</span>
-            </div>
-          </div>
-
-          {pubRoute === 'mass-update' ? (
-            <div className="rounded-xl border border-white/10 bg-slate-950/40 shadow-sm overflow-hidden">
-              <div className="p-4 border-b border-white/10 flex items-start justify-between gap-3">
-                <div>
-                  <div className="text-sm font-semibold text-slate-50">Массовая смена платформы (публикации)</div>
-                  <div className="text-xs text-slate-400 mt-1">
-                    Это отдельный экран (deep‑link). Статус и прогресс операции отслеживайте в “Очереди агента” выше.
-                  </div>
-                </div>
-                <Button variant="secondary" size="sm" onClick={() => setPubRoute('list')} title="Вернуться к списку публикаций">
-                  Назад к публикациям
-                </Button>
-              </div>
-              <div className="p-4 space-y-4">
-                <div className="space-y-1">
-                  <label className="block text-sm font-medium text-slate-300">Исходная версия (откуда)</label>
-                  <Select
-                    value={massSource}
-                    onChange={e => setMassSource(e.target.value)}
-                    options={[{ value: '', label: 'Все (любая версия)' }, ...versions.map(v => ({ value: v, label: v }))]}
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="block text-sm font-medium text-slate-300">Целевая версия (куда)</label>
-                  <Select
-                    value={massTarget}
-                    onChange={e => setMassTarget(e.target.value)}
-                    options={[{ value: '', label: '--' }, ...versions.map(v => ({ value: v, label: v }))]}
-                  />
-                </div>
-
-                <div className="rounded-lg border border-white/10 bg-white/5 p-3 text-sm text-slate-200">
-                  <div className="font-semibold text-slate-50">Предпросмотр</div>
-                  <div className="mt-1 text-slate-300">
-                    Будет затронуто публикаций: <b className="text-slate-50">{affectedPublicationsCount}</b>
-                  </div>
-                  <div className="mt-1 text-xs text-slate-400">
-                    Фильтр “исходная версия” ограничивает список, иначе меняются все публикации.
-                  </div>
-                </div>
-
-                <div className="pt-2 flex justify-end gap-3">
-                  <Button variant="secondary" onClick={() => setPubRoute('list')}>Отмена</Button>
-                  <Button onClick={handleMassUpdate} disabled={!massTarget}>Запустить</Button>
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="rounded-xl border border-white/10 bg-slate-950/40 shadow-sm overflow-hidden">
-              <div className="p-4 border-b border-white/10">
-                <div className="text-sm font-semibold text-slate-50">Web‑публикации (обнаружено агентом)</div>
-                <div className="text-xs text-slate-400 mt-1">
-                  Для редактирования откройте “Публикация” или используйте массовую смену платформы. Фильтры применяются только к этой таблице.
-                </div>
-              </div>
-              <div className="p-4 border-b border-white/10 bg-slate-950/40">
-                <div className="flex flex-col lg:flex-row gap-3">
-                  <div className="flex-1">
-                    <Input
-                      value={pubSearch}
-                      onChange={(e) => setPubSearch(e.target.value)}
-                      placeholder="Поиск по URL/пути/версии..."
-                      className="!bg-white/5 !border-white/10 !text-slate-100"
-                      fullWidth
-                    />
-                  </div>
-                  <div className="flex items-center gap-3 flex-wrap">
-                    <Select
-                      fullWidth={false}
-                      value={pubVersion}
-                      onChange={(e) => setPubVersion(e.target.value)}
-                      options={[
-                        { value: '', label: 'Любая версия' },
-                        ...versions.map(v => ({ value: v, label: v }))
-                      ]}
-                    />
-                    <Select
-                      fullWidth={false}
-                      value={pubSite}
-                      onChange={(e) => setPubSite(e.target.value)}
-                      options={[
-                        { value: '', label: 'Любой IIS‑сайт' },
-                        ...pubSites.map(s => ({ value: s, label: s }))
-                      ]}
-                    />
-                    <Button
-                      size="sm"
-                      variant="secondary"
-                      onClick={() => {
-                        setPubSearch('');
-                        setPubVersion('');
-                        setPubSite('');
-                      }}
-                      disabled={!pubSearch && !pubVersion && !pubSite}
-                      title="Сбросить фильтры публикаций"
-                    >
-                      Сбросить
-                    </Button>
-                  </div>
-                </div>
-                <div className="mt-2 text-xs text-slate-400">
-                  Найдено публикаций: <b className="text-slate-200">{filteredPublications.length}</b>
-                </div>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-sm">
-                  <thead className="bg-slate-950/60 text-slate-400 font-medium border-b border-white/10">
-                    <tr>
-                      <th className="px-4 py-3">Сайт</th>
-                      <th className="px-4 py-3">URL</th>
-                      <th className="px-4 py-3">Путь</th>
-                      <th className="px-4 py-3">Версия</th>
-                      <th className="px-4 py-3 text-right">Действия</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-white/10">
-                    {filteredPublications.length === 0 ? (
-                      <tr>
-                        <td colSpan={5} className="px-4 py-10 text-center text-slate-400">
-                          Ничего не найдено. Сбросьте фильтры или проверьте агента/настройки.
-                        </td>
-                      </tr>
-                    ) : (
-                      filteredPublications.map(p => {
-                        const base = p.appPath.replace(/^\//, '') || p.siteName || p.id;
-                        return (
-                          <tr key={p.id} className="hover:bg-white/5 transition-colors">
-                            <td className="px-4 py-3 text-slate-300 text-xs">{p.siteName || '—'}</td>
-                            <td className="px-4 py-3 text-slate-100 font-mono text-xs">{p.appPath || '—'}</td>
-                            <td className="px-4 py-3 text-slate-300 font-mono text-xs truncate max-w-[520px]" title={p.physicalPath}>{p.physicalPath || '—'}</td>
-                            <td className="px-4 py-3 text-slate-200">{p.version || '—'}</td>
-                            <td className="px-4 py-3 text-right">
-                              <ActionMenu
-                                ariaLabel="Действия с публикацией"
-                                items={[{ id: `edit:${p.id}`, label: 'Настройки', onClick: () => handleEditPublication(base, p) }]}
-                              />
-                            </td>
-                          </tr>
-                        );
-                      })
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
-        </div>
-      ) : null}
-
-      {view === 'clients' ? (
-        <div className="rounded-xl border border-white/10 bg-slate-950/40 shadow-sm overflow-hidden">
-          <div className="p-4 border-b border-white/10 bg-slate-950/40">
-            <div className="flex flex-col lg:flex-row gap-4">
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
-                <Input 
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  placeholder="Поиск по названию клиента или инфобазе..." 
-                  className="pl-10 !bg-white/5 !border-white/10 !text-slate-100"
-                  fullWidth
-                />
-              </div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <Filter size={16} className="text-slate-500" />
-                {[
-                  { id: 'all', label: 'Все' },
-                  { id: 'active', label: 'Активные' },
-                  { id: 'warning', label: 'Внимание' },
-                  { id: 'blocked', label: 'Заблокированные' }
-                ].map(f => (
-                  <button
-                    key={f.id}
-                    onClick={() => setStatusFilter(f.id as any)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                      statusFilter === f.id 
-                        ? (f.id === 'active' ? 'bg-green-600 text-white' : f.id === 'blocked' ? 'bg-red-600 text-white' : f.id === 'warning' ? 'bg-amber-600 text-white' : 'bg-indigo-600 text-white')
-                        : 'bg-white/5 text-slate-200 hover:bg-white/10'
-                    }`}
-                  >
-                    {f.label}
-                  </button>
-                ))}
-                <div className="w-px h-6 bg-white/10 mx-1"></div>
-                {[
-                  { id: 'limited', label: 'С лимитом' },
-                  { id: 'unlimited', label: 'Безлимитные' }
-                ].map(f => (
-                  <button
-                    key={f.id}
-                    onClick={() => setLimitFilter(limitFilter === f.id ? 'all' : f.id as any)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                      limitFilter === f.id 
-                        ? 'bg-indigo-600 text-white' 
-                        : 'bg-white/5 text-slate-200 hover:bg-white/10'
-                    }`}
-                  >
-                    {f.label}
-                  </button>
-                ))}
-                <div className="w-px h-6 bg-white/10 mx-1"></div>
-                {[
-                  { id: 'risk', label: 'В риске ≥80%', activeClass: 'bg-amber-600 text-white', title: 'Клиенты с лимитом: загрузка 80–99%' },
-                  { id: 'over', label: 'Перелимит', activeClass: 'bg-rose-600 text-white', title: 'Клиенты с лимитом: факт ≥ план' },
-                  { id: 'noDbs', label: 'Без инфобаз', activeClass: 'bg-slate-700 text-white', title: 'Клиенты без привязанных инфобаз' },
-                  { id: 'noPubs', label: 'Без публикаций', activeClass: 'bg-indigo-600 text-white', title: 'Есть инфобазы, но нет Web‑публикаций' }
-                ].map(f => (
-                  <button
-                    key={f.id}
-                    onClick={() => toggleOpsFilter(f.id as any)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                      opsFilters.has(f.id as any)
-                        ? f.activeClass
-                        : 'bg-white/5 text-slate-200 hover:bg-white/10'
-                    }`}
-                    title={f.title}
-                  >
-                    {f.label}
-                  </button>
-                ))}
-                <div className="w-px h-6 bg-white/10 mx-1"></div>
-                <button
-                  type="button"
-                  onClick={() => onRefresh?.()}
-                  className="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors bg-white/5 text-slate-200 hover:bg-white/10 inline-flex items-center gap-2"
-                  title="Обновить клиентов"
-                >
-                  <RefreshCw size={14} className={isRefreshing ? 'animate-spin' : ''} />
-                  Обновить
-                </button>
-              </div>
-            </div>
-            <div className="mt-3 flex items-center justify-between text-xs text-slate-400">
-              <span>Найдено клиентов: <b className="text-slate-200">{filteredAndSortedClients.length}</b></span>
-              <div className="flex items-center gap-2">
-                <span>{lastUpdate && lastUpdate.getTime() > 0 ? `Обновлено: ${formatRelativeTime(lastUpdate)}` : ''}</span>
-              </div>
-            </div>
-          </div>
+      {/* Render View */}
+      {view === 'clients' && (
+        <ClientsView 
+          clients={clients}
+          filteredAndSortedClients={filteredAndSortedClients}
+          unassignedCount={unassignedDatabases.length}
           
-          <ClientTable 
-            clients={filteredAndSortedClients}
-            onEdit={handleOpenEdit}
-            onDelete={handleDeleteClient}
-            onRemoveDatabase={handleRemoveDatabase}
-            publications={publications}
-            onPublish={handlePublishClick}
-            onEditPublication={handleEditPublication}
-            sortBy={sortBy}
-            sortOrder={sortOrder}
-            onSortChange={handleHeaderSort}
-            onOpenDetails={handleOpenDetails}
-          />
-        </div>
-      ) : null}
+          searchTerm={searchTerm}
+          onSearchChange={setSearchTerm}
+          statusFilter={statusFilter}
+          onStatusFilterChange={setStatusFilter}
+          limitFilter={limitFilter}
+          onLimitFilterChange={setLimitFilter}
+          opsFilters={opsFilters}
+          onToggleOpsFilter={toggleOpsFilter}
+          
+          lastUpdate={lastUpdate}
+          isRefreshing={isRefreshing}
+          onRefresh={onRefresh}
+          
+          onEdit={handleOpenEdit}
+          onDelete={handleDeleteClient}
+          onRemoveDatabase={handleRemoveDatabase}
+          onPublish={handlePublishClick}
+          onEditPublication={handleEditPublication}
+          onOpenDetails={handleOpenDetails}
+          
+          sortBy={sortBy}
+          sortOrder={sortOrder}
+          onSortChange={handleHeaderSort}
+          
+          publications={publications}
+        />
+      )}
 
+      {view === 'infobases' && (
+        <InfobasesView
+          unassignedDatabases={unassignedDatabases}
+          clients={clients}
+          onAssign={handleQuickAssign}
+          onRefresh={fetchDatabases}
+          loading={loadingDbs}
+        />
+      )}
+
+      {view === 'publications' && (
+        <PublicationsView
+          publications={publications}
+          agentId={agentId}
+          versions={versions}
+          
+          search={pubSearch}
+          onSearchChange={setPubSearch}
+          versionFilter={pubVersion}
+          onVersionFilterChange={setPubVersion}
+          siteFilter={pubSite}
+          onSiteFilterChange={setPubSite}
+          
+          route={pubRoute}
+          onRouteChange={setPubRoute}
+          
+          onEditPublication={handleEditPublication}
+        />
+      )}
+
+      {/* Global Modals */}
       <ClientModal 
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
@@ -1210,7 +746,6 @@ const Clients: React.FC<ClientsProps> = ({ clients, onAdd, onUpdate, onDelete, l
         clients={clients}
       />
 
-      {/* Publish Modal */}
       <Modal
         isOpen={isPubModalOpen}
         onClose={() => setIsPubModalOpen(false)}
@@ -1221,7 +756,7 @@ const Clients: React.FC<ClientsProps> = ({ clients, onAdd, onUpdate, onDelete, l
               <div className="rounded-lg border border-white/10 bg-white/5 p-3 text-sm text-slate-200">
                 <div className="font-semibold text-slate-50">Текущее состояние (обнаружено агентом)</div>
                 <div className="mt-1 text-xs text-slate-400">
-                  {currentPublication.lastDetectedAtUtc ? `Обновлено: ${formatRelativeTime(new Date(currentPublication.lastDetectedAtUtc))}` : ''}
+                  {currentPublication.lastDetectedAtUtc ? `Обновлено: ${formatRelativeShort(new Date(currentPublication.lastDetectedAtUtc))}` : ''}
                 </div>
                 <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
                   <div className="text-slate-400">IIS‑сайт: <span className="text-slate-100">{currentPublication.siteName}</span></div>
@@ -1249,6 +784,7 @@ const Clients: React.FC<ClientsProps> = ({ clients, onAdd, onUpdate, onDelete, l
               value={pubPath}
               onChange={e => setPubPath(e.target.value)}
               placeholder="Например: C:\\inetpub\\wwwroot\\base01"
+              error={pubPathError || undefined}
             />
             
             <div className="space-y-1">
@@ -1262,7 +798,7 @@ const Clients: React.FC<ClientsProps> = ({ clients, onAdd, onUpdate, onDelete, l
 
             <div className="pt-4 flex justify-end gap-3">
                 <Button variant="secondary" onClick={() => setIsPubModalOpen(false)}>Отмена</Button>
-                <Button onClick={handlePublishSubmit} disabled={!!pubNameError || !pubVer || !pubPath.trim()}>
+                <Button onClick={handlePublishSubmit} disabled={!!pubNameError || !!pubPathError || !pubVer || !pubPath.trim()}>
                     {isEditingPub ? 'Сохранить изменения' : 'Опубликовать'}
                 </Button>
             </div>
@@ -1312,24 +848,6 @@ const Clients: React.FC<ClientsProps> = ({ clients, onAdd, onUpdate, onDelete, l
       />
 
       <ConfirmDialog
-        isOpen={massConfirmOpen}
-        onClose={() => setMassConfirmOpen(false)}
-        title="Запустить массовую смену платформы?"
-        description={
-          <>
-            <div>Исходная версия: <b className="text-slate-50">{massSource || 'Любая'}</b></div>
-            <div>Целевая версия: <b className="text-slate-50">{massTarget || '--'}</b></div>
-            <div>Публикаций к изменению: <b className="text-slate-50">{affectedPublicationsCount}</b></div>
-            <div className="text-xs text-slate-400">Операция выполняется агентом и может занять время.</div>
-          </>
-        }
-        confirmText="Запустить"
-        cancelText="Отмена"
-        variant="danger"
-        onConfirm={executeMassUpdate}
-      />
-
-      <ConfirmDialog
         isOpen={pubConfirmOpen}
         onClose={() => setPubConfirmOpen(false)}
         title={isEditingPub ? 'Сохранить настройки публикации?' : 'Создать публикацию?'}
@@ -1375,6 +893,7 @@ const Clients: React.FC<ClientsProps> = ({ clients, onAdd, onUpdate, onDelete, l
         onEditPublication={(dbName, pub) => handleEditPublication(dbName, pub)}
       />
 
+      {/* Saved Views Modals */}
       <Modal
         isOpen={saveViewOpen}
         onClose={() => setSaveViewOpen(false)}

@@ -32,6 +32,11 @@ export const ClientRow: React.FC<ClientRowProps> = ({
   const isCritical = !isUnlimited && percentage >= 100;
   const isWarning = !isUnlimited && percentage >= 80 && percentage < 100;
 
+  const sessionBreakdown = client.databases
+    .filter(db => db.activeSessions > 0)
+    .map(db => `${db.name}: ${db.activeSessions}`)
+    .join('\n');
+
   const previewDbs = client.databases.slice(0, 2);
   const remainingDbs = client.databases.length - previewDbs.length;
 
@@ -91,7 +96,7 @@ export const ClientRow: React.FC<ClientRowProps> = ({
           </div>
         </td>
         <td className={`${cellPad} align-middle`}>
-          <div className="w-full max-w-[180px]">
+          <div className="w-full max-w-[180px]" title={sessionBreakdown || 'Нет активных сеансов'}>
             <div className="flex justify-between text-sm mb-2">
               <span className="font-semibold text-slate-200">
                 {client.activeSessions} / {isUnlimited ? '∞' : client.maxSessions}

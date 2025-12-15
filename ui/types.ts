@@ -66,3 +66,24 @@ export interface AgentPublicationDto {
   version: string | null;
   lastDetectedAtUtc: string;
 }
+
+export type AgentCommandStatus = 'Pending' | 'Processing' | 'Completed' | 'Failed' | string;
+
+export type PublicationsRoute = 'list' | 'mass-update';
+
+export type StatusFilter = 'all' | 'active' | 'blocked' | 'warning';
+export type LimitFilter = 'all' | 'limited' | 'unlimited';
+export type OpsFilter = 'risk' | 'over' | 'noDbs' | 'noPubs';
+
+export interface AgentCommandDto {
+  id: string;
+  commandType: string;
+  status: AgentCommandStatus;
+  errorMessage?: string | null;
+  progressPercent?: number | null;
+  progressMessage?: string | null;
+  startedAtUtc?: string | null;
+  lastUpdatedAtUtc?: string | null;
+  createdAtUtc: string;
+  processedAtUtc?: string | null;
+}
