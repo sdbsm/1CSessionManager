@@ -4,7 +4,7 @@ import { Input } from '../../../components/ui/Input';
 import { Select } from '../../../components/ui/Select';
 import { Badge } from '../../../components/ui/Badge';
 import { ActionMenu } from '../../../components/ui/ActionMenu';
-import { RefreshCw } from 'lucide-react';
+import { RefreshCw, Trash2 } from 'lucide-react';
 import { AgentCommandDto, AgentPublicationDto, PublicationsRoute, AgentCommandStatus } from '../../../../types';
 import { apiFetchJson } from '../../../services/apiClient';
 import { useToast } from '../../../hooks/useToast';
@@ -54,6 +54,8 @@ export const PublicationsView: React.FC<PublicationsViewProps> = ({
   const [agentCommands, setAgentCommands] = useState<AgentCommandDto[]>([]);
   const [commandsLoading, setCommandsLoading] = useState(false);
   const [commandsLastUpdate, setCommandsLastUpdate] = useState<Date>(new Date(0));
+  const [clearingOld, setClearingOld] = useState(false);
+  const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
 
   const hasInFlightCommands = useMemo(() => {
     return agentCommands.some(c => c.status === 'Pending' || c.status === 'Processing');
@@ -70,6 +72,31 @@ export const PublicationsView: React.FC<PublicationsViewProps> = ({
       console.warn('Failed to load agent commands', e);
     } finally {
       setCommandsLoading(false);
+    }
+  };
+
+  const clearOldCommands = async (daysOld: number = 7) => {
+    if (!agentId) return;
+    setClearingOld(true);
+    try {
+      const result = await apiFetchJson<{ deletedCount: number; cutoffDate: string }>(
+        `/api/agents/${agentId}/commands/old?daysOld=${daysOld}`,
+        { method: 'DELETE' }
+      );
+      toast.success({ 
+        title: 'Очистка завершена', 
+        message: `Удалено записей: ${result.deletedCount}` 
+      });
+      // Refresh commands list
+      await fetchAgentCommands();
+    } catch (e: any) {
+      toast.error({ 
+        title: 'Ошибка очистки', 
+        message: e?.message ? String(e.message) : 'Не удалось очистить старые записи.' 
+      });
+    } finally {
+      setClearingOld(false);
+      setClearConfirmOpen(false);
     }
   };
 
@@ -218,6 +245,18 @@ export const PublicationsView: React.FC<PublicationsViewProps> = ({
             >
               Обновить
             </Button>
+            {agentCommands.length > 0 && (
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => setClearConfirmOpen(true)}
+                isLoading={clearingOld}
+                icon={<Trash2 size={14} />}
+                title="Удалить завершенные и ошибочные команды старше 7 дней"
+              >
+                Очистить старые
+              </Button>
+            )}
           </div>
         </div>
         <div className="overflow-x-auto">
@@ -447,6 +486,26 @@ export const PublicationsView: React.FC<PublicationsViewProps> = ({
         cancelText="Отмена"
         variant="danger"
         onConfirm={executeMassUpdate}
+      />
+
+      <ConfirmDialog
+        isOpen={clearConfirmOpen}
+        onClose={() => setClearConfirmOpen(false)}
+        title="Очистить старые записи?"
+        description={
+          <>
+            <div className="text-sm text-slate-300 mb-2">
+              Будет удалено завершенных и ошибочных команд старше <b className="text-slate-50">7 дней</b>.
+            </div>
+            <div className="text-xs text-slate-400">
+              Команды в статусе "В очереди" и "В работе" не будут удалены.
+            </div>
+          </>
+        }
+        confirmText="Очистить"
+        cancelText="Отмена"
+        variant="danger"
+        onConfirm={() => clearOldCommands(7)}
       />
     </div>
   );
