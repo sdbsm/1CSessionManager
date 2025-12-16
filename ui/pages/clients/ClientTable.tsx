@@ -16,6 +16,7 @@ interface ClientTableProps {
   sortOrder: 'asc' | 'desc';
   onSortChange: (field: 'name' | 'sessions' | 'databases' | 'status') => void;
   onOpenDetails: (client: Client) => void;
+  expandedClientId?: string | null;
 }
 
 export const ClientTable: React.FC<ClientTableProps> = ({
@@ -29,7 +30,8 @@ export const ClientTable: React.FC<ClientTableProps> = ({
   sortBy,
   sortOrder,
   onSortChange,
-  onOpenDetails
+  onOpenDetails,
+  expandedClientId
 }) => {
   const { prefs } = useUiPrefs();
   const renderSortIcon = (field: 'name' | 'sessions' | 'databases' | 'status') => {
@@ -93,6 +95,11 @@ export const ClientTable: React.FC<ClientTableProps> = ({
                   onEdit={(c) => onEdit(c)}
                   onDelete={(id) => onDelete(id)}
                   density={prefs.density}
+                  isExpanded={client.id === expandedClientId}
+                  publications={publications}
+                  onRemoveDatabase={(clientId, dbName) => onRemoveDatabase(clientId, dbName)}
+                  onPublish={(dbName) => onPublish && onPublish(dbName)}
+                  onEditPublication={(dbName, pub) => onEditPublication && onEditPublication(dbName, pub)}
                 />
               ))
             ) : (

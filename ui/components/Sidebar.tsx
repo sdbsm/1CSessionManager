@@ -138,47 +138,6 @@ const Sidebar: React.FC<SidebarProps> = ({ activeRoute, onNavigate, clients, tim
       </nav>
 
       <div className={`${collapsed ? 'p-2' : 'p-4'} border-t border-white/10`}>
-        {!collapsed && (
-          <div className="bg-white/5 p-4 rounded-lg mb-3">
-            <p className="text-xs text-slate-400 mb-2">Быстрые действия</p>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                className="text-xs px-3 py-2 rounded-md bg-white/5 hover:bg-white/10 border border-white/10 text-slate-200 transition-colors"
-                onClick={() => {
-                  if (onOpenCommandPalette) onOpenCommandPalette();
-                }}
-                title="Открыть глобальный поиск (Ctrl+K)"
-              >
-                Поиск (Ctrl+K)
-              </button>
-              <button
-                type="button"
-                className="text-xs px-3 py-2 rounded-md bg-white/5 hover:bg-white/10 border border-white/10 text-slate-200 transition-colors"
-                onClick={() => { window.location.hash = '#/events?levels=critical,warning'; }}
-                title="Открыть журнал событий (critical+warning)"
-              >
-                События (warn+)
-              </button>
-              <button
-                type="button"
-                className="text-xs px-3 py-2 rounded-md bg-white/5 hover:bg-white/10 border border-white/10 text-slate-200 transition-colors"
-                onClick={() => { window.location.hash = '#/clients?ops=over'; }}
-                title="Клиенты: перелимит или блокировка"
-              >
-                Клиенты (перелимит)
-              </button>
-              <button
-                type="button"
-                className="text-xs px-3 py-2 rounded-md bg-white/5 hover:bg-white/10 border border-white/10 text-slate-200 transition-colors"
-                onClick={() => { window.location.hash = '#/clients?ops=risk'; }}
-                title="Клиенты: в риске (≥80%)"
-              >
-                Клиенты (в риске)
-              </button>
-            </div>
-          </div>
-        )}
 
         <div className={`bg-white/5 p-4 rounded-lg mb-3 ${collapsed ? 'hidden' : ''}`}>
           <p className="text-xs text-slate-400 mb-1">Служба</p>

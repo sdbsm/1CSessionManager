@@ -5,7 +5,6 @@ import { Button } from '../../components/ui/Button';
 import { PageHeader } from '../../components/ui/PageHeader';
 import { Input } from '../../components/ui/Input';
 import { ClientModal } from './ClientModal';
-import { ClientDetailsDrawer } from './ClientDetailsDrawer';
 import { useInfobases } from '../../hooks/useInfobases';
 import { useSettings } from '../../hooks/useSettings';
 import { apiFetchJson } from '../../services/apiClient';
@@ -410,7 +409,7 @@ const Clients: React.FC<ClientsProps> = ({ clients, onAdd, onUpdate, onDelete, l
 
   const handleOpenDetails = (client: Client) => {
     setView('clients');
-    setDetailsClientId(client.id);
+    setDetailsClientId(prev => prev === client.id ? null : client.id);
   };
 
   const readStateFromHash = () => {
@@ -704,6 +703,7 @@ const Clients: React.FC<ClientsProps> = ({ clients, onAdd, onUpdate, onDelete, l
           onSortChange={handleHeaderSort}
           
           publications={publications}
+          expandedClientId={detailsClientId}
         />
       )}
 
@@ -874,35 +874,7 @@ const Clients: React.FC<ClientsProps> = ({ clients, onAdd, onUpdate, onDelete, l
         }}
       />
 
-      <ClientDetailsDrawer
-        isOpen={!!detailsClientId}
-        onClose={() => setDetailsClientId(null)}
-        client={(() => {
-          if (!detailsClientId) return null;
-          const found = clients.find(c => c.id === detailsClientId);
-          if (!found && detailsClientId) {
-            console.warn('ClientDetailsDrawer: Клиент не найден', { 
-              detailsClientId, 
-              clientsCount: clients.length,
-              clientIds: clients.map(c => c.id)
-            });
-          }
-          return found ?? null;
-        })()}
-        publications={publications}
-        onOpenEvents={(clientId) => {
-          const ret = window.location.hash || '#/clients';
-          window.location.hash = `#/events?clientId=${encodeURIComponent(clientId)}&return=${encodeURIComponent(ret)}`;
-          setDetailsClientId(null);
-        }}
-        onEditClient={(c) => {
-          setDetailsClientId(null);
-          handleOpenEdit(c);
-        }}
-        onRemoveDatabase={(clientId, dbName) => handleRemoveDatabase(clientId, dbName)}
-        onPublish={(dbName) => handlePublishClick(dbName)}
-        onEditPublication={(dbName, pub) => handleEditPublication(dbName, pub)}
-      />
+      {/* ClientDetailsDrawer removed - logic moved to expandable rows in ClientTable */}
 
       {/* Saved Views Modals */}
       <Modal

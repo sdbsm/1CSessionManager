@@ -2,6 +2,7 @@ import React from 'react';
 import { Search, Filter, RefreshCw } from 'lucide-react';
 import { Client, AgentPublicationDto, StatusFilter, LimitFilter, OpsFilter } from '../../../types';
 import { Input } from '../../../components/ui/Input';
+import { Select } from '../../../components/ui/Select';
 import { ClientTable } from '../ClientTable';
 import { ClientStats } from '../ClientStats';
 import { formatRelativeShort } from '../../../utils/time';
@@ -40,6 +41,7 @@ interface ClientsViewProps {
   onSortChange: (field: 'name' | 'sessions' | 'databases' | 'status') => void;
   
   publications: AgentPublicationDto[];
+  expandedClientId?: string | null;
 }
 
 export const ClientsView: React.FC<ClientsViewProps> = ({
@@ -66,7 +68,8 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
   sortBy,
   sortOrder,
   onSortChange,
-  publications
+  publications,
+  expandedClientId
 }) => {
   return (
     <>
@@ -74,8 +77,8 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
 
       <div className="rounded-xl border border-white/10 bg-slate-950/40 shadow-sm overflow-hidden mt-6">
         <div className="p-4 border-b border-white/10 bg-slate-950/40">
-          <div className="flex flex-col lg:flex-row gap-4">
-            <div className="relative flex-1">
+          <div className="flex flex-col xl:flex-row gap-4 items-start xl:items-center">
+            <div className="relative flex-1 min-w-[200px] w-full">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" size={18} />
               <Input 
                 value={searchTerm}
@@ -85,75 +88,70 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
                 fullWidth
               />
             </div>
-            <div className="flex items-center gap-2 flex-wrap">
-              <Filter size={16} className="text-slate-500" />
-              {[
-                { id: 'all', label: 'Все' },
-                { id: 'active', label: 'Активные' },
-                { id: 'warning', label: 'Внимание' },
-                { id: 'blocked', label: 'Заблокированные' }
-              ].map(f => (
+            
+            <div className="flex flex-wrap items-center gap-3 w-full xl:w-auto">
+              <Select
+                value={statusFilter}
+                onChange={(e) => onStatusFilterChange(e.target.value as StatusFilter)}
+                options={[
+                    { value: 'all', label: 'Все статусы' },
+                    { value: 'active', label: 'Активные' },
+                    { value: 'warning', label: 'Внимание' },
+                    { value: 'blocked', label: 'Заблокированные' }
+                ]}
+                className="w-40"
+                fullWidth={false}
+              />
+
+              <Select
+                value={limitFilter}
+                onChange={(e) => onLimitFilterChange(e.target.value as LimitFilter)}
+                options={[
+                    { value: 'all', label: 'Любой лимит' },
+                    { value: 'limited', label: 'С лимитом' },
+                    { value: 'unlimited', label: 'Безлимитные' }
+                ]}
+                className="w-40"
+                fullWidth={false}
+              />
+
+              <div className="w-px h-8 bg-white/10 mx-1 hidden sm:block"></div>
+              
+              <div className="flex items-center gap-1 bg-white/5 p-1 rounded-lg border border-white/10">
+                {[
+                  { id: 'risk', label: 'Риск', activeClass: 'bg-amber-600 text-white', title: 'Клиенты с лимитом: загрузка 80–99%' },
+                  { id: 'over', label: 'Перелимит', activeClass: 'bg-rose-600 text-white', title: 'Клиенты с лимитом: факт ≥ план' },
+                  { id: 'noDbs', label: 'Нет баз', activeClass: 'bg-slate-700 text-white', title: 'Клиенты без привязанных инфобаз' },
+                  { id: 'noPubs', label: 'Нет Web', activeClass: 'bg-indigo-600 text-white', title: 'Есть инфобазы, но нет Web‑публикаций' }
+                ].map(f => (
+                  <button
+                    key={f.id}
+                    onClick={() => onToggleOpsFilter(f.id as OpsFilter)}
+                    className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                      opsFilters.has(f.id as OpsFilter)
+                        ? f.activeClass
+                        : 'text-slate-400 hover:text-slate-200 hover:bg-white/5'
+                    }`}
+                    title={f.title}
+                  >
+                    {f.label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="ml-auto xl:ml-0">
                 <button
-                  key={f.id}
-                  onClick={() => onStatusFilterChange(f.id as StatusFilter)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                    statusFilter === f.id 
-                      ? (f.id === 'active' ? 'bg-green-600 text-white' : f.id === 'blocked' ? 'bg-red-600 text-white' : f.id === 'warning' ? 'bg-amber-600 text-white' : 'bg-indigo-600 text-white')
-                      : 'bg-white/5 text-slate-200 hover:bg-white/10'
-                  }`}
+                    type="button"
+                    onClick={() => onRefresh?.()}
+                    className="p-2 rounded-lg transition-colors bg-white/5 text-slate-400 hover:text-white hover:bg-white/10"
+                    title="Обновить данные"
                 >
-                  {f.label}
+                    <RefreshCw size={18} className={isRefreshing ? 'animate-spin' : ''} />
                 </button>
-              ))}
-              <div className="w-px h-6 bg-white/10 mx-1"></div>
-              {[
-                { id: 'limited', label: 'С лимитом' },
-                { id: 'unlimited', label: 'Безлимитные' }
-              ].map(f => (
-                <button
-                  key={f.id}
-                  onClick={() => onLimitFilterChange(limitFilter === f.id ? 'all' : f.id as LimitFilter)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                    limitFilter === f.id 
-                      ? 'bg-indigo-600 text-white' 
-                      : 'bg-white/5 text-slate-200 hover:bg-white/10'
-                  }`}
-                >
-                  {f.label}
-                </button>
-              ))}
-              <div className="w-px h-6 bg-white/10 mx-1"></div>
-              {[
-                { id: 'risk', label: 'В риске ≥80%', activeClass: 'bg-amber-600 text-white', title: 'Клиенты с лимитом: загрузка 80–99%' },
-                { id: 'over', label: 'Перелимит', activeClass: 'bg-rose-600 text-white', title: 'Клиенты с лимитом: факт ≥ план' },
-                { id: 'noDbs', label: 'Без инфобаз', activeClass: 'bg-slate-700 text-white', title: 'Клиенты без привязанных инфобаз' },
-                { id: 'noPubs', label: 'Без публикаций', activeClass: 'bg-indigo-600 text-white', title: 'Есть инфобазы, но нет Web‑публикаций' }
-              ].map(f => (
-                <button
-                  key={f.id}
-                  onClick={() => onToggleOpsFilter(f.id as OpsFilter)}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                    opsFilters.has(f.id as OpsFilter)
-                      ? f.activeClass
-                      : 'bg-white/5 text-slate-200 hover:bg-white/10'
-                  }`}
-                  title={f.title}
-                >
-                  {f.label}
-                </button>
-              ))}
-              <div className="w-px h-6 bg-white/10 mx-1"></div>
-              <button
-                type="button"
-                onClick={() => onRefresh?.()}
-                className="px-3 py-1.5 rounded-lg text-xs font-medium transition-colors bg-white/5 text-slate-200 hover:bg-white/10 inline-flex items-center gap-2"
-                title="Обновить клиентов"
-              >
-                <RefreshCw size={14} className={isRefreshing ? 'animate-spin' : ''} />
-                Обновить
-              </button>
+              </div>
             </div>
           </div>
+          
           <div className="mt-3 flex items-center justify-between text-xs text-slate-400">
             <span>Найдено клиентов: <b className="text-slate-200">{filteredAndSortedClients.length}</b></span>
             <div className="flex items-center gap-2">
@@ -174,6 +172,7 @@ export const ClientsView: React.FC<ClientsViewProps> = ({
           sortOrder={sortOrder}
           onSortChange={onSortChange}
           onOpenDetails={onOpenDetails}
+          expandedClientId={expandedClientId}
         />
       </div>
     </>
