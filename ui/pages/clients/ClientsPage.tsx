@@ -877,7 +877,18 @@ const Clients: React.FC<ClientsProps> = ({ clients, onAdd, onUpdate, onDelete, l
       <ClientDetailsDrawer
         isOpen={!!detailsClientId}
         onClose={() => setDetailsClientId(null)}
-        client={detailsClientId ? (clients.find(c => c.id === detailsClientId) || null) : null}
+        client={(() => {
+          if (!detailsClientId) return null;
+          const found = clients.find(c => c.id === detailsClientId);
+          if (!found && detailsClientId) {
+            console.warn('ClientDetailsDrawer: Клиент не найден', { 
+              detailsClientId, 
+              clientsCount: clients.length,
+              clientIds: clients.map(c => c.id)
+            });
+          }
+          return found ?? null;
+        })()}
         publications={publications}
         onOpenEvents={(clientId) => {
           const ret = window.location.hash || '#/clients';

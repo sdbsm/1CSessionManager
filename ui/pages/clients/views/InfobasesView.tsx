@@ -1,6 +1,6 @@
 import React from 'react';
 import { UnassignedDatabases } from '../UnassignedDatabases';
-import { Client } from '../../../../types';
+import { Client } from '../../../types';
 
 interface InfobasesViewProps {
   unassignedDatabases: { name: string, uuid: string }[];

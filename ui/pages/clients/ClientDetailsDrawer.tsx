@@ -39,10 +39,18 @@ export const ClientDetailsDrawer: React.FC<ClientDetailsDrawerProps> = ({
     });
   }, [client, publications]);
 
+
   if (!client) {
+    if (!isOpen) return null;
+    
     return (
       <Drawer isOpen={isOpen} onClose={onClose} title="Детали клиента" size="lg">
-        <div className="text-sm text-slate-400">Клиент не выбран.</div>
+        <div className="space-y-4">
+          <div className="text-sm text-slate-400">Клиент не найден или данные еще не загружены.</div>
+          <div className="text-xs text-slate-500">
+            Это может произойти, если клиент был удален или ID клиента не соответствует ни одному из существующих клиентов.
+          </div>
+        </div>
       </Drawer>
     );
   }

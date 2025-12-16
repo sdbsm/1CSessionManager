@@ -148,33 +148,28 @@ public static class AgentsEndpoints
             return Results.Ok(rows);
         });
 
-        // Delete old completed/failed commands
+        // Delete all completed/failed commands
         endpoints.MapDelete("/api/agents/{agentId}/commands/old", async (
             Guid agentId,
-            int? daysOld,
             IDbContextFactory<AppDbContext> dbFactory,
             CancellationToken ct) =>
         {
             await using var db = await dbFactory.CreateDbContextAsync(ct);
 
-            // Default: delete commands older than 7 days that are completed or failed
-            var cutoffDate = DateTime.UtcNow.AddDays(-(daysOld ?? 7));
-            
-            var oldCommands = await db.AgentCommands
+            // Delete all completed or failed commands (no date restriction)
+            var commandsToDelete = await db.AgentCommands
                 .Where(x => x.AgentId == agentId 
-                    && (x.Status == "Completed" || x.Status == "Failed")
-                    && x.ProcessedAtUtc.HasValue
-                    && x.ProcessedAtUtc.Value < cutoffDate)
+                    && (x.Status == "Completed" || x.Status == "Failed"))
                 .ToListAsync(ct);
 
-            var count = oldCommands.Count;
+            var count = commandsToDelete.Count;
             if (count > 0)
             {
-                db.AgentCommands.RemoveRange(oldCommands);
+                db.AgentCommands.RemoveRange(commandsToDelete);
                 await db.SaveChangesAsync(ct);
             }
 
-            return Results.Ok(new { deletedCount = count, cutoffDate });
+            return Results.Ok(new { deletedCount = count });
         });
 
         // Default-agent fallback for UI requests that don't specify agentId (backward compatible)

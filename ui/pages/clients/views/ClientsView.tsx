@@ -1,6 +1,6 @@
 import React from 'react';
 import { Search, Filter, RefreshCw } from 'lucide-react';
-import { Client, AgentPublicationDto, StatusFilter, LimitFilter, OpsFilter } from '../../../../types';
+import { Client, AgentPublicationDto, StatusFilter, LimitFilter, OpsFilter } from '../../../types';
 import { Input } from '../../../components/ui/Input';
 import { ClientTable } from '../ClientTable';
 import { ClientStats } from '../ClientStats';
